@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#6C5CE7">
+<title>okilibe</title>
+<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiVGFza0Zsb3ciLCJzaG9ydF9uYW1lIjoiVGFza0Zsb3ciLCJzdGFydF91cmwiOiIuIiwiZGlzcGxheSI6InN0YW5kYWxvbmUiLCJiYWNrZ3JvdW5kX2NvbG9yIjoiI2YwZjJmNSIsInRoZW1lX2NvbG9yIjoiIzZDNUNFNyJ9">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f0f2f5;color:#2d3436;overscroll-behavior:none}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:#ccc;border-radius:4px}
+input,textarea,select{font-family:inherit;font-size:inherit}
+#root{max-width:480px;margin:0 auto;min-height:100vh;background:#fff;position:relative;overflow:hidden}
+@keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes pop{0%{transform:scale(.8)}50%{transform:scale(1.05)}100%{transform:scale(1)}}
+@keyframes notifSlide{from{transform:translateY(-100%);opacity:0}to{transform:translateY(0);opacity:1}}
+.slide-up{animation:slideUp .3s ease-out}
+.fade-in{animation:fadeIn .2s ease-out}
+.pop{animation:pop .3s ease-out}
+.notif-toast{animation:notifSlide .3s ease-out}
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/javascript">
+const {useState,useEffect,useRef,useCallback} = React;
+
+// ─── IndexedDB ───
+const DB_NAME="OkilibeDB",DB_VERSION=2;
+const openDB=()=>new Promise((res,rej)=>{const r=indexedDB.open(DB_NAME,DB_VERSION);r.onupgradeneeded=e=>{const db=e.target.result;["projects","tasks","messages","notifications","images","members"].forEach(s=>{if(!db.objectStoreNames.contains(s))db.createObjectStore(s,{keyPath:"id"})})};r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)});
+const dbOp=async(store,mode,fn)=>{const db=await openDB();return new Promise((res,rej)=>{const tx=db.transaction(store,mode);const s=tx.objectStore(store);const r=fn(s);if(r&&r.onsuccess!==undefined){r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error)}else{tx.oncomplete=()=>res(r);tx.onerror=()=>rej(tx.error)}})};
+const dbGetAll=s=>dbOp(s,"readonly",st=>st.getAll());
+const dbPut=(s,d)=>dbOp(s,"readwrite",st=>st.put(d));
+const dbDelete=(s,id)=>dbOp(s,"readwrite",st=>st.delete(id));
+
+// ─── Helpers ───
+const uid=()=>crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Date.now().toString(36);
+const now=()=>new Date().toISOString();
+const fmtDate=iso=>{if(!iso)return"";const d=new Date(iso);return`${d.getMonth()+1}/${d.getDate()}`};
+const fmtTime=iso=>{const d=new Date(iso);return`${d.getHours()}:${String(d.getMinutes()).padStart(2,"0")}`};
+const fmtFull=iso=>{const d=new Date(iso);return`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2,"0")}`};
+const fmtDateOnly=iso=>{if(!iso)return"";const d=new Date(iso);return`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`};
+
+const COLORS=["#6C5CE7","#00B894","#E17055","#0984E3","#FDCB6E","#E84393","#00CEC9","#FF7675","#A29BFE","#55EFC4"];
+const STATUS_COLORS={todo:"#a0aec0",doing:"#0984E3",review:"#FDCB6E",done:"#00B894"};
+const STATUS_LABELS={todo:"To Do",doing:"進行中",review:"レビュー",done:"完了"};
+const PRIORITY_COLORS={low:"#00B894",medium:"#FDCB6E",high:"#E17055",urgent:"#D63031"};
+const PRIORITY_LABELS={low:"低",medium:"中",high:"高",urgent:"緊急"};
+
+// ─── Icons ───
+const Ic=({d,size=20,color="currentColor",...p})=>React.createElement("svg",{width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:color,strokeWidth:"2",strokeLinecap:"round",strokeLinejoin:"round",...p},typeof d==="string"?React.createElement("path",{d}):d);
+const Icons={
+  plus:React.createElement(Ic,{d:"M12 5v14M5 12h14"}),
+  back:React.createElement(Ic,{d:"M19 12H5M12 19l-7-7 7-7"}),
+  check:React.createElement(Ic,{d:"M20 6L9 17l-5-5"}),
+  trash:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M3 6h18"}),React.createElement("path",{d:"M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"}),React.createElement("path",{d:"M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"}))}),
+  edit:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"}),React.createElement("path",{d:"M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"}))}),
+  chat:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"}))}),
+  bell:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"}),React.createElement("path",{d:"M13.73 21a2 2 0 01-3.46 0"}))}),
+  folder:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"}))}),
+  search:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("circle",{cx:"11",cy:"11",r:"8"}),React.createElement("path",{d:"M21 21l-4.35-4.35"}))}),
+  close:React.createElement(Ic,{d:"M18 6L6 18M6 6l12 12"}),
+  send:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M22 2L11 13"}),React.createElement("path",{d:"M22 2l-7 20-4-9-9-4 20-7z"}))}),
+  home:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"}),React.createElement("path",{d:"M9 22V12h6v10"}))}),
+  settings:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("circle",{cx:"12",cy:"12",r:"3"}),React.createElement("path",{d:"M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"}))}),
+};
+
+// ─── Cute Illustrations ───
+function CuteLion({size=80}){return React.createElement("svg",{width:size,height:size*1.7,viewBox:"0 0 120 204",fill:"none",xmlns:"http://www.w3.org/2000/svg"},
+  // ── LEGS ──
+  React.createElement("rect",{x:"38",y:"162",width:"18",height:"30",rx:"8",fill:"#FFE0B2"}),
+  React.createElement("rect",{x:"64",y:"162",width:"18",height:"30",rx:"8",fill:"#FFE0B2"}),
+  // sandals
+  React.createElement("ellipse",{cx:"47",cy:"196",rx:"12",ry:"5",fill:"#8B4513"}),
+  React.createElement("path",{d:"M42 194 L47 188 L52 194",stroke:"#A0522D",strokeWidth:"1.8",fill:"none"}),
+  React.createElement("ellipse",{cx:"73",cy:"196",rx:"12",ry:"5",fill:"#8B4513"}),
+  React.createElement("path",{d:"M68 194 L73 188 L78 194",stroke:"#A0522D",strokeWidth:"1.8",fill:"none"}),
+
+  // ── SHORTS (デニム半ズボン) ──
+  React.createElement("path",{d:"M30 140 L30 170 Q30 176 38 176 L52 176 L52 158 L68 158 L68 176 L82 176 Q90 176 90 170 L90 140 Z",fill:"#5B9BD5"}),
+  React.createElement("path",{d:"M30 140 L90 140",stroke:"#4A8BC2",strokeWidth:"2"}),
+  React.createElement("path",{d:"M36 147 L48 147",stroke:"#4A8BC2",strokeWidth:"1.2",strokeLinecap:"round"}),
+  // belt loop
+  React.createElement("rect",{x:"44",y:"139",width:"5",height:"5",rx:"1",fill:"#4A8BC2"}),
+  React.createElement("rect",{x:"71",y:"139",width:"5",height:"5",rx:"1",fill:"#4A8BC2"}),
+
+  // ── KARIYUSHI WEAR (白ベース + 大きなハイビスカス柄) ──
+  React.createElement("path",{d:"M22 78 Q18 84 16 100 L16 142 Q16 146 22 146 L98 146 Q104 146 104 142 L104 100 Q102 84 98 78 Z",fill:"#FAFAFA"}),
+  // collar - open collar style
+  React.createElement("path",{d:"M46 78 L54 92 L60 86 L66 92 L74 78",stroke:"#eee",strokeWidth:"1.5",fill:"#FAFAFA"}),
+
+  // big hibiscus 1 - red/pink (left chest)
+  React.createElement("path",{d:"M28 98 Q22 90 30 86 Q36 84 34 92 Z",fill:"#E74C3C",opacity:"0.85"}),
+  React.createElement("path",{d:"M34 92 Q40 84 44 90 Q46 96 38 96 Z",fill:"#C0392B",opacity:"0.85"}),
+  React.createElement("path",{d:"M38 96 Q44 100 40 106 Q34 108 32 102 Z",fill:"#E74C3C",opacity:"0.8"}),
+  React.createElement("path",{d:"M32 102 Q26 106 24 100 Q24 94 28 98 Z",fill:"#FF6B6B",opacity:"0.8"}),
+  React.createElement("path",{d:"M28 98 Q32 104 38 96",fill:"#C0392B",opacity:"0.6"}),
+  React.createElement("circle",{cx:"33",cy:"96",r:"3",fill:"#FDCB6E"}),
+  React.createElement("circle",{cx:"33",cy:"96",r:"1.5",fill:"#F39C12"}),
+  // stamen lines
+  React.createElement("path",{d:"M33 96 L30 90",stroke:"#F39C12",strokeWidth:"0.8"}),
+  React.createElement("path",{d:"M33 96 L38 91",stroke:"#F39C12",strokeWidth:"0.8"}),
+  React.createElement("path",{d:"M33 96 L36 102",stroke:"#F39C12",strokeWidth:"0.8"}),
+  React.createElement("circle",{cx:"30",cy:"89",r:"1",fill:"#F39C12"}),
+  React.createElement("circle",{cx:"38",cy:"90",r:"1",fill:"#F39C12"}),
+  React.createElement("circle",{cx:"36",cy:"103",r:"1",fill:"#F39C12"}),
+
+  // big hibiscus 2 - pink (right belly)
+  React.createElement("path",{d:"M76 118 Q70 110 78 106 Q84 104 82 112 Z",fill:"#FF6B81",opacity:"0.85"}),
+  React.createElement("path",{d:"M82 112 Q88 104 92 110 Q94 116 86 116 Z",fill:"#EE5A6F",opacity:"0.85"}),
+  React.createElement("path",{d:"M86 116 Q92 120 88 126 Q82 128 80 122 Z",fill:"#FF6B81",opacity:"0.8"}),
+  React.createElement("path",{d:"M80 122 Q74 126 72 120 Q72 114 76 118 Z",fill:"#FF8E9E",opacity:"0.8"}),
+  React.createElement("path",{d:"M76 118 Q80 124 86 116",fill:"#EE5A6F",opacity:"0.6"}),
+  React.createElement("circle",{cx:"81",cy:"116",r:"3",fill:"#FDCB6E"}),
+  React.createElement("circle",{cx:"81",cy:"116",r:"1.5",fill:"#F39C12"}),
+  React.createElement("path",{d:"M81 116 L78 110",stroke:"#F39C12",strokeWidth:"0.8"}),
+  React.createElement("path",{d:"M81 116 L86 111",stroke:"#F39C12",strokeWidth:"0.8"}),
+  React.createElement("circle",{cx:"78",cy:"109",r:"1",fill:"#F39C12"}),
+  React.createElement("circle",{cx:"86",cy:"110",r:"1",fill:"#F39C12"}),
+
+  // big hibiscus 3 - red (lower left)
+  React.createElement("path",{d:"M44 126 Q38 120 44 116 Q50 114 48 122 Z",fill:"#E74C3C",opacity:"0.7"}),
+  React.createElement("path",{d:"M48 122 Q54 116 56 122 Q56 128 50 126 Z",fill:"#C0392B",opacity:"0.7"}),
+  React.createElement("path",{d:"M50 126 Q54 132 48 134 Q44 132 44 126 Z",fill:"#FF6B6B",opacity:"0.7"}),
+  React.createElement("circle",{cx:"48",cy:"124",r:"2.5",fill:"#FDCB6E"}),
+  React.createElement("circle",{cx:"48",cy:"124",r:"1.2",fill:"#F39C12"}),
+
+  // line art detail on flowers
+  React.createElement("path",{d:"M26 92 Q30 88 34 92",stroke:"#B03A2E",strokeWidth:"0.5",fill:"none",opacity:"0.5"}),
+  React.createElement("path",{d:"M36 94 Q38 90 42 92",stroke:"#B03A2E",strokeWidth:"0.5",fill:"none",opacity:"0.5"}),
+  React.createElement("path",{d:"M74 114 Q78 110 82 114",stroke:"#C0392B",strokeWidth:"0.5",fill:"none",opacity:"0.5"}),
+
+  // leaf accents
+  React.createElement("ellipse",{cx:"50",cy:"105",rx:"8",ry:"3.5",fill:"#27AE60",opacity:"0.3",transform:"rotate(-25 50 105)"}),
+  React.createElement("path",{d:"M46 105 L54 105",stroke:"#229954",strokeWidth:"0.6",opacity:"0.4"}),
+  React.createElement("ellipse",{cx:"70",cy:"132",rx:"7",ry:"3",fill:"#27AE60",opacity:"0.3",transform:"rotate(20 70 132)"}),
+  React.createElement("path",{d:"M66 132 L74 132",stroke:"#229954",strokeWidth:"0.6",opacity:"0.4"}),
+  React.createElement("ellipse",{cx:"88",cy:"98",rx:"6",ry:"2.5",fill:"#27AE60",opacity:"0.25",transform:"rotate(-40 88 98)"}),
+  React.createElement("ellipse",{cx:"24",cy:"118",rx:"5",ry:"2",fill:"#27AE60",opacity:"0.25",transform:"rotate(30 24 118)"}),
+
+  // buttons
+  React.createElement("circle",{cx:"60",cy:"105",r:"2",fill:"#ddd",stroke:"#ccc",strokeWidth:"0.5"}),
+  React.createElement("circle",{cx:"60",cy:"118",r:"2",fill:"#ddd",stroke:"#ccc",strokeWidth:"0.5"}),
+  React.createElement("circle",{cx:"60",cy:"131",r:"2",fill:"#ddd",stroke:"#ccc",strokeWidth:"0.5"}),
+
+  // ── MACHO ARMS ──
+  // left arm
+  React.createElement("ellipse",{cx:"11",cy:"102",rx:"11",ry:"15",fill:"#FFE0B2"}),
+  React.createElement("path",{d:"M22 82 Q6 88 2 108 Q0 118 6 124 L18 122 Q14 108 22 96 Z",fill:"#FFE0B2"}),
+  React.createElement("path",{d:"M9 96 Q13 102 9 110",stroke:"#F0C8A0",strokeWidth:"1",fill:"none"}),
+  React.createElement("ellipse",{cx:"6",cy:"126",rx:"8",ry:"7",fill:"#FFE0B2"}),
+  // left sleeve
+  React.createElement("path",{d:"M22 78 Q12 82 10 92 L18 94 Q18 86 24 82 Z",fill:"#FAFAFA"}),
+  React.createElement("path",{d:"M10 92 L18 94",stroke:"#eee",strokeWidth:"1"}),
+
+  // right arm
+  React.createElement("ellipse",{cx:"109",cy:"102",rx:"11",ry:"15",fill:"#FFE0B2"}),
+  React.createElement("path",{d:"M98 82 Q114 88 118 108 Q120 118 114 124 L102 122 Q106 108 98 96 Z",fill:"#FFE0B2"}),
+  React.createElement("path",{d:"M111 96 Q107 102 111 110",stroke:"#F0C8A0",strokeWidth:"1",fill:"none"}),
+  React.createElement("ellipse",{cx:"114",cy:"126",rx:"8",ry:"7",fill:"#FFE0B2"}),
+  // right sleeve
+  React.createElement("path",{d:"M98 78 Q108 82 110 92 L102 94 Q102 86 96 82 Z",fill:"#FAFAFA"}),
+  React.createElement("path",{d:"M110 92 L102 94",stroke:"#eee",strokeWidth:"1"}),
+
+  // ── HEAD (directly on body, no neck) ──
+  // mane - fluffy
+  React.createElement("circle",{cx:"60",cy:"40",r:"40",fill:"#FDCB6E"}),
+  React.createElement("circle",{cx:"30",cy:"18",r:"13",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"90",cy:"18",r:"13",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"20",cy:"36",r:"11",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"100",cy:"36",r:"11",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"24",cy:"56",r:"10",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"96",cy:"56",r:"10",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"34",cy:"68",r:"9",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"86",cy:"68",r:"9",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"48",cy:"74",r:"8",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"72",cy:"74",r:"8",fill:"#F9A825"}),
+  // face
+  React.createElement("circle",{cx:"60",cy:"44",r:"32",fill:"#FFE0B2"}),
+  // ears
+  React.createElement("circle",{cx:"34",cy:"22",r:"8",fill:"#FFE0B2"}),
+  React.createElement("circle",{cx:"86",cy:"22",r:"8",fill:"#FFE0B2"}),
+  React.createElement("circle",{cx:"34",cy:"22",r:"4",fill:"#FFB6B9"}),
+  React.createElement("circle",{cx:"86",cy:"22",r:"4",fill:"#FFB6B9"}),
+  // big round cute eyes
+  React.createElement("circle",{cx:"47",cy:"40",r:"7",fill:"#fff"}),
+  React.createElement("circle",{cx:"73",cy:"40",r:"7",fill:"#fff"}),
+  React.createElement("circle",{cx:"48",cy:"41",r:"5",fill:"#2d3436"}),
+  React.createElement("circle",{cx:"74",cy:"41",r:"5",fill:"#2d3436"}),
+  React.createElement("circle",{cx:"50",cy:"39",r:"2.2",fill:"#fff"}),
+  React.createElement("circle",{cx:"76",cy:"39",r:"2.2",fill:"#fff"}),
+  React.createElement("circle",{cx:"47",cy:"43",r:"1",fill:"#fff",opacity:"0.6"}),
+  React.createElement("circle",{cx:"73",cy:"43",r:"1",fill:"#fff",opacity:"0.6"}),
+  // cute eyebrows
+  React.createElement("path",{d:"M41 32 Q47 29 53 32",stroke:"#D4A04A",strokeWidth:"2",fill:"none",strokeLinecap:"round"}),
+  React.createElement("path",{d:"M67 32 Q73 29 79 32",stroke:"#D4A04A",strokeWidth:"2",fill:"none",strokeLinecap:"round"}),
+  // nose - small and cute
+  React.createElement("ellipse",{cx:"60",cy:"50",rx:"4",ry:"2.8",fill:"#E17055"}),
+  React.createElement("ellipse",{cx:"60",cy:"49",rx:"1.5",ry:"1",fill:"#F0A090",opacity:"0.6"}),
+  // happy mouth - big smile
+  React.createElement("path",{d:"M52 55 Q60 64 68 55",stroke:"#2d3436",strokeWidth:"2",fill:"none",strokeLinecap:"round"}),
+  React.createElement("path",{d:"M54 55 Q60 62 66 55",fill:"#FF6B6B",opacity:"0.3"}),
+  // tooth
+  React.createElement("rect",{x:"57",y:"55",width:"6",height:"4",rx:"1",fill:"#fff"}),
+  // rosy cheeks
+  React.createElement("circle",{cx:"36",cy:"52",r:"6",fill:"#FFB6B9",opacity:"0.45"}),
+  React.createElement("circle",{cx:"84",cy:"52",r:"6",fill:"#FFB6B9",opacity:"0.45"})
+)}
+
+function CuteWing({size=40}){return React.createElement("svg",{width:size,height:size,viewBox:"0 0 80 80",fill:"none",xmlns:"http://www.w3.org/2000/svg"},
+  // wing body
+  React.createElement("ellipse",{cx:"40",cy:"38",rx:"28",ry:"22",fill:"#F9A825",transform:"rotate(-15 40 38)"}),
+  React.createElement("ellipse",{cx:"40",cy:"38",rx:"24",ry:"18",fill:"#FDCB6E",transform:"rotate(-15 40 38)"}),
+  // crispy bumps
+  React.createElement("circle",{cx:"18",cy:"38",r:"8",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"62",cy:"30",r:"7",fill:"#F9A825"}),
+  React.createElement("circle",{cx:"25",cy:"26",r:"6",fill:"#F9A825"}),
+  // bone stick
+  React.createElement("rect",{x:"55",y:"48",width:"22",height:"6",rx:"3",fill:"#FFE0B2",transform:"rotate(25 55 48)"}),
+  React.createElement("circle",{cx:"73",cy:"57",r:"5",fill:"#FFE0B2"}),
+  // shine
+  React.createElement("ellipse",{cx:"35",cy:"32",rx:"6",ry:"3",fill:"#fff",opacity:"0.4",transform:"rotate(-20 35 32)"}),
+  // face on wing
+  React.createElement("circle",{cx:"38",cy:"36",r:"1.5",fill:"#2d3436"}),
+  React.createElement("circle",{cx:"48",cy:"34",r:"1.5",fill:"#2d3436"}),
+  React.createElement("path",{d:"M40 40 Q43 43 46 40",stroke:"#2d3436",strokeWidth:"1.2",fill:"none",strokeLinecap:"round"}),
+  // cheeks
+  React.createElement("circle",{cx:"35",cy:"40",r:"2.5",fill:"#FFB6B9",opacity:"0.5"}),
+  React.createElement("circle",{cx:"51",cy:"38",r:"2.5",fill:"#FFB6B9",opacity:"0.5"})
+)}
+
+// ─── Sub Components ───
+function Modal({title,onClose,children}){
+  return React.createElement("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.4)",zIndex:200,display:"flex",alignItems:"flex-end",justifyContent:"center"},onClick:onClose},
+    React.createElement("div",{className:"slide-up",onClick:e=>e.stopPropagation(),style:{background:"#fff",borderRadius:"24px 24px 0 0",width:"100%",maxWidth:480,maxHeight:"90vh",overflow:"auto",padding:"20px 20px 32px"}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}},
+        React.createElement("h2",{style:{fontSize:18,fontWeight:700}},title),
+        React.createElement("button",{onClick:onClose,style:{background:"#f0f2f5",border:"none",borderRadius:50,width:32,height:32,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer"}},Icons.close)
+      ),children))
+}
+function FF({label,children}){return React.createElement("div",{style:{marginBottom:16}},React.createElement("label",{style:{display:"block",fontSize:13,fontWeight:600,color:"#636e72",marginBottom:6}},label),children)}
+const iS={width:"100%",padding:"12px 14px",borderRadius:12,border:"2px solid #e0e0e0",fontSize:14,outline:"none",background:"#f8f9fa"};
+
+function TaskCard({task,onClick,onStatusChange,images,messageCount}){
+  return React.createElement("div",{onClick,style:{background:"#fff",borderRadius:14,padding:14,marginBottom:10,boxShadow:"0 1px 8px rgba(0,0,0,0.05)",cursor:"pointer",borderLeft:`3px solid ${STATUS_COLORS[task.status]}`}},
+    React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+      React.createElement("div",{style:{flex:1,marginRight:8}},
+        React.createElement("div",{style:{fontWeight:600,fontSize:14,marginBottom:4}},task.title),
+        task.description&&React.createElement("div",{style:{fontSize:12,color:"#636e72",lineHeight:1.4,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden"}},task.description)
+      ),
+      React.createElement("select",{value:task.status,onChange:e=>{e.stopPropagation();onStatusChange(e.target.value)},onClick:e=>e.stopPropagation(),style:{fontSize:11,padding:"3px 6px",borderRadius:6,border:`1.5px solid ${STATUS_COLORS[task.status]}`,color:STATUS_COLORS[task.status],background:`${STATUS_COLORS[task.status]}15`,fontWeight:600,cursor:"pointer"}},
+        Object.entries(STATUS_LABELS).map(([k,v])=>React.createElement("option",{key:k,value:k},v)))
+    ),
+    React.createElement("div",{style:{display:"flex",gap:10,marginTop:10,alignItems:"center",flexWrap:"wrap"}},
+      task.priority&&React.createElement("span",{style:{fontSize:11,padding:"2px 8px",borderRadius:6,fontWeight:600,background:`${PRIORITY_COLORS[task.priority]}18`,color:PRIORITY_COLORS[task.priority]}},PRIORITY_LABELS[task.priority]),
+      task.dueDate&&React.createElement("span",{style:{fontSize:11,color:"#636e72"}},"📅 ",fmtDate(task.dueDate)),
+      images.length>0&&React.createElement("span",{style:{fontSize:11,color:"#636e72"}},"🖼 ",images.length),
+      messageCount>0&&React.createElement("span",{style:{fontSize:11,color:"#636e72"}},"💬 ",messageCount),
+      task.assignee&&React.createElement("span",{style:{fontSize:10,padding:"2px 8px",borderRadius:10,background:"#dfe6e9",color:"#2d3436",fontWeight:500,marginLeft:"auto"}},task.assignee)
+    ),
+    images.length>0&&React.createElement("div",{style:{display:"flex",gap:6,marginTop:8,overflow:"auto"}},
+      images.slice(0,3).map(img=>React.createElement("img",{key:img.id,src:img.data,alt:"",style:{width:48,height:48,borderRadius:8,objectFit:"cover"}})),
+      images.length>3&&React.createElement("span",{style:{fontSize:12,color:"#636e72",alignSelf:"center"}},"+",images.length-3)
+    )
+  )
+}
+
+function TaskDetail({task,images,project,onUpdate,onDelete,onAddImage,onDeleteImage,onViewImage,onOpenChat,onEdit,messageCount}){
+  const fileRef=useRef(null);
+  return React.createElement("div",{className:"fade-in",style:{padding:16,paddingBottom:100}},
+    React.createElement("div",{style:{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}},
+      React.createElement("select",{value:task.status,onChange:e=>onUpdate({status:e.target.value}),style:{padding:"8px 14px",borderRadius:10,border:`2px solid ${STATUS_COLORS[task.status]}`,color:STATUS_COLORS[task.status],background:`${STATUS_COLORS[task.status]}12`,fontWeight:700,fontSize:14,cursor:"pointer"}},Object.entries(STATUS_LABELS).map(([k,v])=>React.createElement("option",{key:k,value:k},v))),
+      React.createElement("select",{value:task.priority||"medium",onChange:e=>onUpdate({priority:e.target.value}),style:{padding:"8px 14px",borderRadius:10,border:`2px solid ${PRIORITY_COLORS[task.priority||"medium"]}`,color:PRIORITY_COLORS[task.priority||"medium"],background:`${PRIORITY_COLORS[task.priority||"medium"]}12`,fontWeight:700,fontSize:14,cursor:"pointer"}},Object.entries(PRIORITY_LABELS).map(([k,v])=>React.createElement("option",{key:k,value:k},v)))
+    ),
+    React.createElement("h1",{style:{fontSize:22,fontWeight:800,marginBottom:8}},task.title),
+    task.description&&React.createElement("p",{style:{fontSize:14,color:"#636e72",lineHeight:1.6,marginBottom:16}},task.description),
+    React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:10,marginBottom:20,padding:14,background:"#f8f9fa",borderRadius:14}},
+      task.dueDate&&React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,fontSize:14}},React.createElement("span",null,"📅"),React.createElement("span",{style:{fontWeight:500}},"期限: ",fmtDateOnly(task.dueDate))),
+      task.assignee&&React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,fontSize:14}},React.createElement("span",null,"👤"),React.createElement("span",{style:{fontWeight:500}},"担当: ",task.assignee)),
+      React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8,fontSize:14}},React.createElement("span",null,"📁"),React.createElement("span",{style:{fontWeight:500}},project?.name||"プロジェクト")),
+      React.createElement("div",{style:{fontSize:12,color:"#b2bec3"}},"作成: ",fmtFull(task.createdAt))
+    ),
+    React.createElement("div",{style:{display:"flex",gap:8,marginBottom:20,flexWrap:"wrap"}},
+      React.createElement("button",{onClick:onOpenChat,style:{flex:1,minWidth:120,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"12px 16px",borderRadius:12,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#0984E3,#74b9ff)",color:"#fff",fontWeight:600,fontSize:14}},Icons.chat," チャット",messageCount>0&&` (${messageCount})`),
+      React.createElement("button",{onClick:onEdit,style:{flex:1,minWidth:80,display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"12px 16px",borderRadius:12,border:"2px solid #dfe6e9",cursor:"pointer",background:"#fff",color:"#2d3436",fontWeight:600,fontSize:14}},Icons.edit," 編集"),
+      React.createElement("button",{onClick:onDelete,style:{display:"flex",alignItems:"center",justifyContent:"center",gap:6,padding:"12px 16px",borderRadius:12,border:"2px solid #ff7675",cursor:"pointer",background:"#fff",color:"#D63031",fontWeight:600,fontSize:14}},Icons.trash)
+    ),
+    React.createElement("div",{style:{marginBottom:20}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+        React.createElement("h3",{style:{fontSize:16,fontWeight:700}},"📷 画像 (",images.length,")"),
+        React.createElement("button",{onClick:()=>fileRef.current?.click(),style:{background:"linear-gradient(135deg,#00CEC9,#55EFC4)",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:4}},Icons.plus," 追加"),
+        React.createElement("input",{ref:fileRef,type:"file",accept:"image/*",multiple:true,style:{display:"none"},onChange:e=>{Array.from(e.target.files).forEach(f=>onAddImage(f));e.target.value=""}})
+      ),
+      images.length>0?React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
+        images.map(img=>React.createElement("div",{key:img.id,style:{position:"relative",borderRadius:12,overflow:"hidden",aspectRatio:"1"}},
+          React.createElement("img",{src:img.data,alt:img.name,onClick:()=>onViewImage(img.data),style:{width:"100%",height:"100%",objectFit:"cover",cursor:"pointer"}}),
+          React.createElement("button",{onClick:()=>onDeleteImage(img.id),style:{position:"absolute",top:4,right:4,background:"rgba(0,0,0,0.5)",border:"none",borderRadius:50,width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}},Icons.close)
+        ))
+      ):React.createElement("div",{style:{textAlign:"center",padding:24,background:"#f8f9fa",borderRadius:14,color:"#b2bec3"}},
+        React.createElement("div",{style:{fontSize:32,marginBottom:4}},"🖼"),React.createElement("div",{style:{fontSize:13}},"画像をアップロードしましょう"))
+    )
+  )
+}
+
+function ChatView({messages,currentUser,onSend,task}){
+  const[text,setText]=useState("");const bottomRef=useRef(null);
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"})},[messages]);
+  const handleSend=()=>{if(!text.trim())return;onSend(text.trim());setText("")};
+  return React.createElement("div",{className:"fade-in",style:{display:"flex",flexDirection:"column",height:"calc(100vh - 56px)"}},
+    React.createElement("div",{style:{padding:"8px 16px",background:"#f8f9fa",borderBottom:"1px solid #eee",fontSize:13,color:"#636e72"}},"📋 ",task.title),
+    React.createElement("div",{style:{flex:1,overflow:"auto",padding:16,display:"flex",flexDirection:"column",gap:8}},
+      messages.length===0&&React.createElement("div",{style:{textAlign:"center",padding:40,color:"#b2bec3"}},React.createElement("div",{style:{fontSize:40,marginBottom:8}},"💬"),React.createElement("div",null,"まだメッセージはありません")),
+      messages.map(m=>{
+        const isMe=m.userId===currentUser.id;
+        return React.createElement("div",{key:m.id,style:{display:"flex",justifyContent:isMe?"flex-end":"flex-start",gap:8,alignItems:"flex-end"}},
+          !isMe&&React.createElement("div",{style:{width:30,height:30,borderRadius:15,background:"#6C5CE7",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:13,fontWeight:700,flexShrink:0}},m.userName?.charAt(0)),
+          React.createElement("div",{style:{maxWidth:"75%",padding:"10px 14px",borderRadius:isMe?"18px 18px 4px 18px":"18px 18px 18px 4px",background:isMe?"linear-gradient(135deg,#6C5CE7,#a29bfe)":"#f0f2f5",color:isMe?"#fff":"#2d3436",fontSize:14,lineHeight:1.5}},
+            !isMe&&React.createElement("div",{style:{fontSize:11,fontWeight:700,marginBottom:2,opacity:.7}},m.userName),
+            React.createElement("div",null,m.text),
+            React.createElement("div",{style:{fontSize:10,opacity:.6,marginTop:4,textAlign:"right"}},fmtTime(m.createdAt))
+          ))
+      }),
+      React.createElement("div",{ref:bottomRef})
+    ),
+    React.createElement("div",{style:{padding:"10px 16px 20px",background:"#fff",borderTop:"1px solid #eee",display:"flex",gap:8,alignItems:"center"}},
+      React.createElement("input",{value:text,onChange:e=>setText(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();handleSend()}},placeholder:"メッセージを入力...",style:{flex:1,padding:"12px 16px",borderRadius:24,border:"2px solid #e0e0e0",outline:"none",fontSize:14,background:"#f8f9fa"}}),
+      React.createElement("button",{onClick:handleSend,disabled:!text.trim(),style:{width:44,height:44,borderRadius:22,border:"none",cursor:text.trim()?"pointer":"default",background:text.trim()?"linear-gradient(135deg,#6C5CE7,#a29bfe)":"#dfe6e9",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center"}},Icons.send)
+    )
+  )
+}
+
+// ─── Main App ───
+function App(){
+  const[projects,setProjects]=useState([]);
+  const[tasks,setTasks]=useState([]);
+  const[messages,setMessages]=useState([]);
+  const[notifications,setNotifications]=useState([]);
+  const[images,setImages]=useState([]);
+  const[members,setMembers]=useState([]);
+  const[currentUser,setCurrentUser]=useState(null);
+  const[view,setView]=useState("home");
+  const[selProj,setSelProj]=useState(null);
+  const[selTask,setSelTask]=useState(null);
+  const[showChat,setShowChat]=useState(false);
+  const[showNewProj,setShowNewProj]=useState(false);
+  const[showNewTask,setShowNewTask]=useState(false);
+  const[showEditTask,setShowEditTask]=useState(false);
+  const[showImgView,setShowImgView]=useState(null);
+  const[showAddMember,setShowAddMember]=useState(false);
+  const[toast,setToast]=useState(null);
+  const[search,setSearch]=useState("");
+  const[loaded,setLoaded]=useState(false);
+
+  useEffect(()=>{(async()=>{try{const[p,t,m,n,i,mb]=await Promise.all([dbGetAll("projects"),dbGetAll("tasks"),dbGetAll("messages"),dbGetAll("notifications"),dbGetAll("images"),dbGetAll("members")]);setProjects(p||[]);setTasks(t||[]);setMessages(m||[]);setNotifications(n||[]);setImages(i||[]);setMembers(mb||[]);if(mb&&mb.length>0)setCurrentUser(mb[0])}catch(e){console.error(e)}setLoaded(true)})()},[]);
+
+  const showT=useCallback((msg,type="info")=>{setToast({msg,type,id:uid()});setTimeout(()=>setToast(null),3000)},[]);
+  const addNotif=useCallback(async(title,body,pId,tId)=>{const n={id:uid(),title,body,projectId:pId,taskId:tId,read:false,createdAt:now()};setNotifications(prev=>[n,...prev]);await dbPut("notifications",n);if("Notification"in window&&Notification.permission==="granted")new Notification(title,{body})},[]);
+
+  useEffect(()=>{if("Notification"in window&&Notification.permission==="default")Notification.requestPermission()},[]);
+
+  if(loaded&&!currentUser){
+    return React.createElement(UserSetup,{onComplete:async user=>{const m={...user,id:uid(),createdAt:now()};await dbPut("members",m);setMembers([m]);setCurrentUser(m)}})
+  }
+  if(!loaded)return React.createElement("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"linear-gradient(135deg,#6C5CE7,#a29bfe)",gap:16}},React.createElement(CuteLion,{size:80}),React.createElement("span",{style:{color:"#fff",fontSize:28,fontWeight:800}},"okilibe"));
+
+  const unread=notifications.filter(n=>!n.read).length;
+
+  const addProject=async d=>{const p={id:uid(),...d,color:COLORS[projects.length%COLORS.length],createdAt:now(),createdBy:currentUser.id};setProjects(prev=>[...prev,p]);await dbPut("projects",p);showT("プロジェクトを作成しました","success");addNotif("新規プロジェクト",`「${p.name}」が作成されました`,p.id,null)};
+  const deleteProject=async id=>{setProjects(prev=>prev.filter(p=>p.id!==id));await dbDelete("projects",id);const rel=tasks.filter(t=>t.projectId===id);for(const t of rel)await dbDelete("tasks",t.id);setTasks(prev=>prev.filter(t=>t.projectId!==id));showT("プロジェクトを削除しました");if(selProj===id){setSelProj(null);setView("home")}};
+
+  const addTask=async d=>{const t={id:uid(),...d,status:"todo",createdAt:now(),createdBy:currentUser.id};setTasks(prev=>[...prev,t]);await dbPut("tasks",t);showT("タスクを追加しました","success");addNotif("新規タスク",`「${t.title}」が追加されました`,t.projectId,t.id)};
+  const updateTask=async(id,u)=>{setTasks(prev=>prev.map(t=>t.id===id?{...t,...u,updatedAt:now()}:t));const task=tasks.find(t=>t.id===id);if(task){await dbPut("tasks",{...task,...u,updatedAt:now()});if(u.status&&u.status!==task.status)addNotif("ステータス変更",`「${task.title}」が${STATUS_LABELS[u.status]}になりました`,task.projectId,id)}};
+  const deleteTask=async id=>{const task=tasks.find(t=>t.id===id);setTasks(prev=>prev.filter(t=>t.id!==id));await dbDelete("tasks",id);showT("タスクを削除しました");if(task)addNotif("タスク削除",`「${task.title}」が削除されました`,task.projectId,null);if(selTask===id){setSelTask(null);setShowChat(false)}};
+
+  const addImage=async(taskId,file)=>new Promise(res=>{const reader=new FileReader();reader.onload=async e=>{const img={id:uid(),taskId,data:e.target.result,name:file.name,type:file.type,createdAt:now()};setImages(prev=>[...prev,img]);await dbPut("images",img);showT("画像を追加しました","success");const task=tasks.find(t=>t.id===taskId);if(task)addNotif("画像追加",`「${task.title}」に画像が追加されました`,task.projectId,taskId);res(img)};reader.readAsDataURL(file)});
+  const deleteImage=async id=>{setImages(prev=>prev.filter(i=>i.id!==id));await dbDelete("images",id);showT("画像を削除しました")};
+
+  const sendMessage=async(taskId,text)=>{const m={id:uid(),taskId,text,userId:currentUser.id,userName:currentUser.name,createdAt:now()};setMessages(prev=>[...prev,m]);await dbPut("messages",m);const task=tasks.find(t=>t.id===taskId);if(task)addNotif("新しいメッセージ",`${currentUser.name}: ${text.slice(0,30)}`,task.projectId,taskId)};
+
+  const addMember=async name=>{const m={id:uid(),name:name.trim(),createdAt:now()};setMembers(prev=>[...prev,m]);await dbPut("members",m);showT(`${m.name}を追加しました`,"success")};
+  const deleteMember=async id=>{if(id===currentUser.id){showT("自分は削除できません","error");return}const m=members.find(mb=>mb.id===id);setMembers(prev=>prev.filter(mb=>mb.id!==id));await dbDelete("members",id);showT(`${m?.name||"メンバー"}を削除しました`)};
+
+  const markAllRead=async()=>{const u=notifications.map(n=>({...n,read:true}));setNotifications(u);for(const n of u)await dbPut("notifications",n)};
+
+  const goProj=id=>{setSelProj(id);setView("project")};
+  const goTask=id=>{setSelTask(id);setView("task")};
+  const goHome=()=>{setView("home");setSelProj(null);setSelTask(null);setShowChat(false)};
+  const goBack=()=>{if(showChat){setShowChat(false);return}if(view==="task"){setSelTask(null);setView("project");return}if(view==="project"||view==="notifications"||view==="settings"){goHome();return}goHome()};
+
+  const pTasks=tasks.filter(t=>t.projectId===selProj);
+  const curProj=projects.find(p=>p.id===selProj);
+  const curTask=tasks.find(t=>t.id===selTask);
+  const tImages=images.filter(i=>i.taskId===selTask);
+  const tMsgs=messages.filter(m=>m.taskId===selTask).sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+  const filtP=search?projects.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())):projects;
+
+  return React.createElement("div",{id:"root-inner"},
+    // Toast
+    toast&&React.createElement("div",{className:"notif-toast",style:{position:"fixed",top:60,left:"50%",transform:"translateX(-50%)",zIndex:9999,background:toast.type==="success"?"#00B894":toast.type==="error"?"#D63031":"#0984E3",color:"#fff",padding:"10px 24px",borderRadius:24,fontSize:14,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,0.2)",whiteSpace:"nowrap"}},toast.msg),
+
+    // Image Viewer
+    showImgView&&React.createElement("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:9998,display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>setShowImgView(null)},
+      React.createElement("img",{src:showImgView,style:{maxWidth:"95%",maxHeight:"90vh",borderRadius:8}}),
+      React.createElement("button",{onClick:()=>setShowImgView(null),style:{position:"absolute",top:16,right:16,background:"rgba(255,255,255,0.2)",border:"none",borderRadius:50,width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}},Icons.close)
+    ),
+
+    // Header
+    React.createElement("header",{style:{background:view==="project"&&curProj?curProj.color:"linear-gradient(135deg,#6C5CE7,#a29bfe)",padding:"14px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:100,boxShadow:"0 2px 12px rgba(0,0,0,0.1)"}},
+      React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12}},
+        view!=="home"?React.createElement("button",{onClick:goBack,style:{background:"none",border:"none",cursor:"pointer",color:"#fff",display:"flex"}},Icons.back):React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6}},React.createElement(CuteLion,{size:18}),React.createElement("span",{style:{fontSize:20,fontWeight:800,color:"#fff",letterSpacing:-.5}},"okilibe")),
+        view==="project"&&curProj&&React.createElement("div",{style:{color:"#fff",fontWeight:700,fontSize:17}},curProj.name),
+        view==="task"&&curTask&&!showChat&&React.createElement("div",{style:{color:"#fff",fontWeight:700,fontSize:15,maxWidth:200,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},curTask.title),
+        showChat&&React.createElement("div",{style:{color:"#fff",fontWeight:700,fontSize:17}},"チャット"),
+        view==="notifications"&&React.createElement("div",{style:{color:"#fff",fontWeight:700,fontSize:17}},"通知"),
+        view==="settings"&&React.createElement("div",{style:{color:"#fff",fontWeight:700,fontSize:17}},"設定")
+      ),
+      React.createElement("div",{style:{display:"flex",gap:8,alignItems:"center"}},
+        React.createElement("button",{onClick:()=>setView("notifications"),style:{background:"rgba(255,255,255,0.2)",border:"none",borderRadius:50,width:36,height:36,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff",position:"relative"}},
+          Icons.bell,
+          unread>0&&React.createElement("span",{style:{position:"absolute",top:-2,right:-2,background:"#D63031",color:"#fff",fontSize:10,fontWeight:700,width:18,height:18,borderRadius:9,display:"flex",alignItems:"center",justifyContent:"center"}},unread>9?"9+":unread)
+        ),
+        React.createElement("div",{style:{width:34,height:34,borderRadius:17,background:"#6C5CE7",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:700,color:"#fff",border:"2px solid rgba(255,255,255,0.5)"}},currentUser?.name?.charAt(0)||"?")
+      )
+    ),
+
+    // HOME
+    view==="home"&&React.createElement("div",{className:"fade-in",style:{padding:16,paddingBottom:100}},
+      React.createElement("div",{style:{display:"flex",alignItems:"center",background:"#f5f6fa",borderRadius:12,padding:"10px 14px",marginBottom:20,gap:8}},
+        React.createElement("span",{style:{color:"#a0aec0"}},Icons.search),
+        React.createElement("input",{value:search,onChange:e=>setSearch(e.target.value),placeholder:"プロジェクトを検索...",style:{border:"none",background:"none",outline:"none",flex:1,fontSize:15,color:"#2d3436"}}),
+        search&&React.createElement("button",{onClick:()=>setSearch(""),style:{background:"none",border:"none",cursor:"pointer",color:"#a0aec0"}},Icons.close)
+      ),
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:24}},
+        [{l:"プロジェクト",v:projects.length,c:"#6C5CE7"},{l:"進行中",v:tasks.filter(t=>t.status==="doing").length,c:"#0984E3"},{l:"完了",v:tasks.filter(t=>t.status==="done").length,c:"#00B894"}].map((s,i)=>
+          React.createElement("div",{key:i,style:{background:`${s.c}15`,borderRadius:14,padding:"14px 10px",textAlign:"center"}},
+            React.createElement("div",{style:{fontSize:24,fontWeight:800,color:s.c}},s.v),
+            React.createElement("div",{style:{fontSize:11,color:"#636e72",marginTop:2}},s.l)))
+      ),
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+        React.createElement("h2",{style:{fontSize:18,fontWeight:700}},"プロジェクト"),
+        React.createElement("button",{onClick:()=>setShowNewProj(true),style:{background:"linear-gradient(135deg,#6C5CE7,#a29bfe)",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:4}},Icons.plus," 新規")
+      ),
+      filtP.length===0?React.createElement("div",{style:{textAlign:"center",padding:40,color:"#b2bec3",display:"flex",flexDirection:"column",alignItems:"center"}},React.createElement(CuteLion,{size:64}),React.createElement("div",{style:{fontWeight:600,marginTop:8}},"プロジェクトがありません")):
+      filtP.map(p=>{const pt=tasks.filter(t=>t.projectId===p.id);const done=pt.filter(t=>t.status==="done").length;const prog=pt.length?Math.round(done/pt.length*100):0;
+        return React.createElement("div",{key:p.id,className:"pop",onClick:()=>goProj(p.id),style:{background:"#fff",borderRadius:16,padding:16,marginBottom:12,boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:"pointer",borderLeft:`4px solid ${p.color}`}},
+          React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+            React.createElement("div",null,React.createElement("div",{style:{fontWeight:700,fontSize:16,marginBottom:4}},p.name),p.description&&React.createElement("div",{style:{fontSize:13,color:"#636e72",marginBottom:8}},p.description)),
+            React.createElement("button",{onClick:e=>{e.stopPropagation();deleteProject(p.id)},style:{background:"none",border:"none",cursor:"pointer",color:"#dfe6e9",padding:4}},Icons.trash)
+          ),
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12,marginTop:8}},
+            React.createElement("div",{style:{flex:1,background:"#f0f2f5",borderRadius:6,height:6,overflow:"hidden"}},React.createElement("div",{style:{width:`${prog}%`,height:"100%",background:p.color,borderRadius:6}})),
+            React.createElement("span",{style:{fontSize:12,color:"#636e72",fontWeight:600}},prog,"%")
+          ),
+          React.createElement("div",{style:{display:"flex",gap:12,marginTop:10,fontSize:12,color:"#636e72"}},"📋 ",pt.length,"タスク  ✅ ",done,"完了")
+        )
+      })
+    ),
+
+    // PROJECT
+    view==="project"&&curProj&&React.createElement("div",{className:"fade-in",style:{paddingBottom:100}},
+      React.createElement("div",{style:{display:"flex",overflow:"auto",padding:"12px 16px",gap:8}},
+        Object.entries(STATUS_LABELS).map(([k,l])=>{const c=pTasks.filter(t=>t.status===k).length;return React.createElement("div",{key:k,style:{background:`${STATUS_COLORS[k]}18`,borderRadius:20,padding:"6px 14px",fontSize:13,fontWeight:600,color:STATUS_COLORS[k],whiteSpace:"nowrap",border:`1.5px solid ${STATUS_COLORS[k]}30`}},l," (",c,")")})
+      ),
+      React.createElement("div",{style:{padding:"0 16px"}},
+        ["todo","doing","review","done"].map(st=>{const sts=pTasks.filter(t=>t.status===st);if(!sts.length)return null;return React.createElement("div",{key:st,style:{marginBottom:20}},
+          React.createElement("div",{style:{fontSize:13,fontWeight:700,color:STATUS_COLORS[st],marginBottom:8}},STATUS_LABELS[st]," (",sts.length,")"),
+          sts.map(task=>React.createElement(TaskCard,{key:task.id,task,onClick:()=>goTask(task.id),onStatusChange:s=>updateTask(task.id,{status:s}),images:images.filter(i=>i.taskId===task.id),messageCount:messages.filter(m=>m.taskId===task.id).length}))
+        )}),
+        pTasks.length===0&&React.createElement("div",{style:{textAlign:"center",padding:40,color:"#b2bec3",display:"flex",flexDirection:"column",alignItems:"center"}},React.createElement(CuteLion,{size:50}),React.createElement("div",{style:{fontWeight:600,marginTop:8}},"タスクがありません"))
+      ),
+      React.createElement("button",{onClick:()=>setShowNewTask(true),style:{position:"fixed",bottom:80,right:"calc(50% - 220px)",width:56,height:56,borderRadius:28,background:curProj.color,border:"none",color:"#fff",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,zIndex:50}},Icons.plus)
+    ),
+
+    // TASK DETAIL
+    view==="task"&&curTask&&!showChat&&React.createElement(TaskDetail,{task:curTask,images:tImages,project:curProj,onUpdate:u=>updateTask(curTask.id,u),onDelete:()=>{deleteTask(curTask.id);goBack()},onAddImage:f=>addImage(curTask.id,f),onDeleteImage:deleteImage,onViewImage:s=>setShowImgView(s),onOpenChat:()=>setShowChat(true),onEdit:()=>setShowEditTask(true),messageCount:tMsgs.length}),
+
+    // CHAT
+    showChat&&curTask&&React.createElement(ChatView,{messages:tMsgs,currentUser,onSend:t=>sendMessage(curTask.id,t),task:curTask}),
+
+    // NOTIFICATIONS
+    view==="notifications"&&React.createElement("div",{className:"fade-in",style:{padding:16,paddingBottom:100}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",marginBottom:12}},React.createElement("button",{onClick:markAllRead,style:{background:"none",border:"none",color:"#6C5CE7",fontSize:13,fontWeight:600,cursor:"pointer"}},"すべて既読にする")),
+      notifications.length===0?React.createElement("div",{style:{textAlign:"center",padding:40,color:"#b2bec3"}},"🔔 通知はありません"):
+      notifications.slice(0,50).map(n=>React.createElement("div",{key:n.id,onClick:()=>{if(n.taskId)goTask(n.taskId);else if(n.projectId)goProj(n.projectId)},style:{background:n.read?"#fff":"#f0e6ff",borderRadius:12,padding:14,marginBottom:8,cursor:"pointer",boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}},
+        React.createElement("div",{style:{fontWeight:600,fontSize:14}},n.title),
+        React.createElement("div",{style:{fontSize:13,color:"#636e72",marginTop:2}},n.body),
+        React.createElement("div",{style:{fontSize:11,color:"#b2bec3",marginTop:4}},fmtFull(n.createdAt))
+      ))
+    ),
+
+    // SETTINGS
+    view==="settings"&&React.createElement("div",{className:"fade-in",style:{padding:16,paddingBottom:100}},
+      React.createElement("div",{style:{background:"#f8f9fa",borderRadius:14,padding:16,marginBottom:20}},
+        React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"#636e72",marginBottom:8}},"ログインユーザー"),
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10}},
+          React.createElement("div",{style:{width:40,height:40,borderRadius:20,background:"#6C5CE7",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:18,fontWeight:700}},currentUser?.name?.charAt(0)),
+          React.createElement("div",{style:{fontWeight:700,fontSize:16}},currentUser?.name))
+      ),
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+        React.createElement("h3",{style:{fontSize:16,fontWeight:700}},"メンバー (",members.length,")"),
+        React.createElement("button",{onClick:()=>setShowAddMember(true),style:{background:"linear-gradient(135deg,#6C5CE7,#a29bfe)",color:"#fff",border:"none",borderRadius:10,padding:"8px 16px",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:4}},Icons.plus," 追加")
+      ),
+      members.map(m=>React.createElement("div",{key:m.id,style:{display:"flex",alignItems:"center",justifyContent:"space-between",background:"#fff",borderRadius:12,padding:12,marginBottom:8,boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}},
+        React.createElement("div",{style:{display:"flex",alignItems:"center",gap:10}},
+          React.createElement("div",{style:{width:34,height:34,borderRadius:17,background:COLORS[members.indexOf(m)%COLORS.length],display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:14,fontWeight:700}},m.name.charAt(0)),
+          React.createElement("div",null,React.createElement("div",{style:{fontWeight:600,fontSize:14}},m.name),m.id===currentUser.id&&React.createElement("span",{style:{fontSize:11,color:"#6C5CE7",fontWeight:600}},"あなた"))
+        ),
+        m.id!==currentUser.id&&React.createElement("button",{onClick:()=>deleteMember(m.id),style:{background:"none",border:"none",cursor:"pointer",color:"#dfe6e9",padding:4}},Icons.trash)
+      ))
+    ),
+
+    // MODALS
+    showNewProj&&React.createElement(Modal,{title:"新規プロジェクト",onClose:()=>setShowNewProj(false)},React.createElement(NewProjForm,{onSave:d=>{addProject(d);setShowNewProj(false)}})),
+    showNewTask&&React.createElement(Modal,{title:"新規タスク",onClose:()=>setShowNewTask(false)},React.createElement(NewTaskForm,{onSave:d=>{addTask({...d,projectId:selProj});setShowNewTask(false)},members})),
+    showEditTask&&curTask&&React.createElement(Modal,{title:"タスクを編集",onClose:()=>setShowEditTask(false)},React.createElement(EditTaskForm,{task:curTask,onSave:u=>{updateTask(curTask.id,u);setShowEditTask(false)},members})),
+    showAddMember&&React.createElement(Modal,{title:"メンバーを追加",onClose:()=>setShowAddMember(false)},React.createElement(AddMemberForm,{onSave:n=>{addMember(n);setShowAddMember(false)}})),
+
+    // BOTTOM NAV
+    React.createElement("nav",{style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:480,background:"#fff",display:"flex",justifyContent:"space-around",padding:"8px 0 12px",boxShadow:"0 -2px 16px rgba(0,0,0,0.06)",zIndex:100,borderTop:"1px solid #f0f2f5"}},
+      [{ic:Icons.home,l:"ホーム",v:"home"},{ic:Icons.folder,l:"プロジェクト",v:"home"},{ic:Icons.bell,l:"通知",v:"notifications"},{ic:Icons.settings,l:"設定",v:"settings"}].map((it,i)=>
+        React.createElement("button",{key:i,onClick:()=>{if(it.v==="notifications")setView("notifications");else if(it.v==="settings")setView("settings");else goHome()},style:{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:2,color:view===it.v?"#6C5CE7":"#b2bec3",position:"relative"}},
+          it.ic,React.createElement("span",{style:{fontSize:10,fontWeight:600}},it.l),
+          it.v==="notifications"&&unread>0&&React.createElement("span",{style:{position:"absolute",top:0,right:4,background:"#D63031",color:"#fff",fontSize:9,fontWeight:700,width:16,height:16,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}},unread>9?"9+":unread)
+        ))
+    )
+  )
+}
+
+// ─── Form Components ───
+function NewProjForm({onSave}){const[n,sN]=useState("");const[d,sD]=useState("");return React.createElement(React.Fragment,null,
+  React.createElement(FF,{label:"プロジェクト名 *"},React.createElement("input",{value:n,onChange:e=>sN(e.target.value),style:iS,placeholder:"プロジェクト名を入力",autoFocus:true})),
+  React.createElement(FF,{label:"説明"},React.createElement("textarea",{value:d,onChange:e=>sD(e.target.value),style:{...iS,minHeight:80,resize:"vertical"},placeholder:"プロジェクトの説明（任意）"})),
+  React.createElement("button",{onClick:()=>{if(n.trim())onSave({name:n.trim(),description:d.trim()})},disabled:!n.trim(),style:{width:"100%",padding:14,borderRadius:14,border:"none",cursor:n.trim()?"pointer":"default",background:n.trim()?"linear-gradient(135deg,#6C5CE7,#a29bfe)":"#dfe6e9",color:"#fff",fontWeight:700,fontSize:16}},"作成する")
+)}
+
+function NewTaskForm({onSave,members}){const[t,sT]=useState("");const[d,sD]=useState("");const[p,sP]=useState("medium");const[dd,sDD]=useState("");const[a,sA]=useState("");return React.createElement(React.Fragment,null,
+  React.createElement(FF,{label:"タスク名 *"},React.createElement("input",{value:t,onChange:e=>sT(e.target.value),style:iS,placeholder:"タスク名を入力",autoFocus:true})),
+  React.createElement(FF,{label:"説明"},React.createElement("textarea",{value:d,onChange:e=>sD(e.target.value),style:{...iS,minHeight:60,resize:"vertical"},placeholder:"タスクの説明"})),
+  React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}},
+    React.createElement(FF,{label:"優先度"},React.createElement("select",{value:p,onChange:e=>sP(e.target.value),style:iS},Object.entries(PRIORITY_LABELS).map(([k,v])=>React.createElement("option",{key:k,value:k},v)))),
+    React.createElement(FF,{label:"期限"},React.createElement("input",{type:"date",value:dd,onChange:e=>sDD(e.target.value),style:iS}))
+  ),
+  React.createElement(FF,{label:"担当者"},React.createElement("select",{value:a,onChange:e=>sA(e.target.value),style:iS},React.createElement("option",{value:""},"未割り当て"),members.map(m=>React.createElement("option",{key:m.id,value:m.name},m.name)))),
+  React.createElement("button",{onClick:()=>{if(t.trim())onSave({title:t.trim(),description:d.trim(),priority:p,dueDate:dd||null,assignee:a||null})},disabled:!t.trim(),style:{width:"100%",padding:14,borderRadius:14,border:"none",cursor:t.trim()?"pointer":"default",background:t.trim()?"linear-gradient(135deg,#6C5CE7,#a29bfe)":"#dfe6e9",color:"#fff",fontWeight:700,fontSize:16}},"追加する")
+)}
+
+function EditTaskForm({task,onSave,members}){const[t,sT]=useState(task.title);const[d,sD]=useState(task.description||"");const[p,sP]=useState(task.priority||"medium");const[dd,sDD]=useState(task.dueDate?task.dueDate.slice(0,10):"");const[a,sA]=useState(task.assignee||"");return React.createElement(React.Fragment,null,
+  React.createElement(FF,{label:"タスク名 *"},React.createElement("input",{value:t,onChange:e=>sT(e.target.value),style:iS,autoFocus:true})),
+  React.createElement(FF,{label:"説明"},React.createElement("textarea",{value:d,onChange:e=>sD(e.target.value),style:{...iS,minHeight:60,resize:"vertical"}})),
+  React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}},
+    React.createElement(FF,{label:"優先度"},React.createElement("select",{value:p,onChange:e=>sP(e.target.value),style:iS},Object.entries(PRIORITY_LABELS).map(([k,v])=>React.createElement("option",{key:k,value:k},v)))),
+    React.createElement(FF,{label:"期限"},React.createElement("input",{type:"date",value:dd,onChange:e=>sDD(e.target.value),style:iS}))
+  ),
+  React.createElement(FF,{label:"担当者"},React.createElement("select",{value:a,onChange:e=>sA(e.target.value),style:iS},React.createElement("option",{value:""},"未割り当て"),members.map(m=>React.createElement("option",{key:m.id,value:m.name},m.name)))),
+  React.createElement("button",{onClick:()=>{if(t.trim())onSave({title:t.trim(),description:d.trim(),priority:p,dueDate:dd||null,assignee:a||null})},disabled:!t.trim(),style:{width:"100%",padding:14,borderRadius:14,border:"none",cursor:t.trim()?"pointer":"default",background:t.trim()?"linear-gradient(135deg,#6C5CE7,#a29bfe)":"#dfe6e9",color:"#fff",fontWeight:700,fontSize:16}},"保存する")
+)}
+
+function AddMemberForm({onSave}){const[n,sN]=useState("");return React.createElement(React.Fragment,null,
+  React.createElement(FF,{label:"名前 *"},React.createElement("input",{value:n,onChange:e=>sN(e.target.value),style:iS,placeholder:"メンバーの名前",autoFocus:true,onKeyDown:e=>{if(e.key==="Enter"&&n.trim())onSave(n.trim())}})),
+  React.createElement("button",{onClick:()=>{if(n.trim())onSave(n.trim())},disabled:!n.trim(),style:{width:"100%",padding:14,borderRadius:14,border:"none",cursor:n.trim()?"pointer":"default",background:n.trim()?"linear-gradient(135deg,#6C5CE7,#a29bfe)":"#dfe6e9",color:"#fff",fontWeight:700,fontSize:16}},"追加する")
+)}
+
+function UserSetup({onComplete}){const[n,sN]=useState("");return React.createElement("div",{style:{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",background:"linear-gradient(135deg,#6C5CE7,#a29bfe)",padding:24}},
+  React.createElement("div",{style:{color:"#fff",textAlign:"center",marginBottom:40,display:"flex",flexDirection:"column",alignItems:"center"}},
+    React.createElement(CuteLion,{size:100}),
+    React.createElement("h1",{style:{fontSize:28,fontWeight:800,marginTop:12}},"okilibe"),
+    React.createElement("p",{style:{fontSize:14,opacity:.8,marginTop:4}},"モバイルファーストのプロジェクト管理")
+  ),
+  React.createElement("div",{style:{background:"#fff",borderRadius:24,padding:24,width:"100%",maxWidth:360}},
+    React.createElement("h2",{style:{fontSize:18,fontWeight:700,marginBottom:4}},"はじめましょう"),
+    React.createElement("p",{style:{fontSize:13,color:"#636e72",marginBottom:20}},"あなたの名前を入力してください"),
+    React.createElement("input",{value:n,onChange:e=>sN(e.target.value),onKeyDown:e=>{if(e.key==="Enter"&&n.trim())onComplete({name:n.trim()})},placeholder:"名前を入力",autoFocus:true,style:{...iS,marginBottom:16,textAlign:"center",fontSize:18}}),
+    React.createElement("button",{onClick:()=>{if(n.trim())onComplete({name:n.trim()})},disabled:!n.trim(),style:{width:"100%",padding:14,borderRadius:14,border:"none",cursor:n.trim()?"pointer":"default",background:n.trim()?"linear-gradient(135deg,#6C5CE7,#a29bfe)":"#dfe6e9",color:"#fff",fontWeight:700,fontSize:16}},"スタート")
+  )
+)}
+
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+</script>
+</body>
+</html>
