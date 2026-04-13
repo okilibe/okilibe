@@ -497,25 +497,29 @@ function App(){
       filtP.map(p=>{const pt=tasks.filter(t=>t.projectId===p.id);const done=pt.filter(t=>t.status==="done").length;const prog=pt.length?Math.round(done/pt.length*100):0;
         return React.createElement("div",{key:p.id,className:"pop",onClick:()=>goProj(p.id),style:{background:"#fff",borderRadius:16,padding:16,marginBottom:12,boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:"pointer",borderLeft:`4px solid ${p.color}`}},
           React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
-            React.createElement("div",null,React.createElement("div",{style:{fontWeight:700,fontSize:16,marginBottom:4}},p.name),p.description&&React.createElement("div",{play:"flex",flexDirection:"column",alignItems:"center"}},React.createElement(CuteLion,{size:50}),React.createElement("div",{style:{fontWeight:600,marginTop:8}},"タスクがありません"))
-      ),
-      React.createElement("button",{onClick:()=>setShowNewTask(true),style:{position:"fixed",bottom:80,right:"calc(50% - 220px)",width:56,height:56,borderRadius:28,background:curProj.color,border:"none",color:"#fff",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,zIndex:50}},Icons.plus)
+            React.createElement("div",null,React.createElement("div",{style:{fontWeight:700,fontSize:16,marginBottom:4}},p.name),p.description&&React.createElement("div",{style:{fontSize:13,color:"#636e72",marginBottom:8}},p.description)),
+            React.createElement("button",{onClick:e=>{e.stopPropagation();deleteProject(p.id)},style:{background:"none",border:"none",cursor:"pointer",color:"#dfe6e9",padding:4}},Icons.trash)
+          ),
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12,marginTop:8}},
+            React.createElement("div",{style:{flex:1,background:"#f0f2f5",borderRadius:6,height:6,overflow:"hidden"}},React.createElement("div",{style:{width:`${prog}%`,height:"100%",background:p.color,borderRadius:6}})),
+            React.createElement("span",{style:{fontSize:12,color:"#636e72",fontWeight:600}},prog,"%")
+          ),
+          React.createElement("div",{style:{display:"flex",gap:12,marginTop:10,fontSize:12,color:"#636e72"}},"📋 ",pt.length,"タスク  ✅ ",done,"完了")
+        )
+      })
     ),
 
-    // TASK DETAIL
-    view==="task"&&curTask&&!showChat&&React.createElement(TaskDetail,{task:curTask,images:tImages,project:curProj,onUpdate:u=>updateTask(curTask.id,u),onDelete:()=>{deleteTask(curTask.id);goBack()},onAddImage:f=>addImage(curTask.id,f),onDeleteImage:deleteImage,onViewImage:s=>setShowImgView(s),onOpenChat:()=>setShowChat(true),onEdit:()=>setShowEditTask(true),messageCount:tMsgs.length}),
-
-    // CHAT
-    showChat&&curTask&&React.createElement(ChatView,{messages:tMsgs,currentUser,onSend:t=>sendMessage(curTask.id,t),task:curTask}),
-
-    // NOTIFICATIONS
-    view==="notifications"&&React.createElement("div",{className:"fade-in",style:{padding:16,paddingBottom:100}},
-      React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",marginBottom:12}},React.createElement("button",{onClick:markAllRead,style:{background:"none",border:"none",color:"#6C5CE7",fontSize:13,fontWeight:600,cursor:"pointer"}},"すべて既読にする")),
-      notifications.length===0?React.createElement("div",{style:{textAlign:"center",padding:40,color:"#b2bec3"}},"🔔 通知はありません"):
-      notifications.slice(0,50).map(n=>React.createElement("div",{key:n.id,onClick:()=>{if(n.taskId)goTask(n.taskId);else if(n.projectId)goProj(n.projectId)},style:{background:n.read?"#fff":"#f0e6ff",borderRadius:12,padding:14,marginBottom:8,cursor:"pointer",boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}},
-        React.createElement("div",{style:{fontWeight:600,fontSize:14}},n.title),
-        React.createElement("div",{style:{fontSize:13,color:"#636e72",marginTop:2}},n.body),
-        React.createElement("div",{style:{fontSize:11,color:"#b2bec3",marginTop:4play:"flex",flexDirection:"column",alignItems:"center"}},React.createElement(CuteLion,{size:50}),React.createElement("div",{style:{fontWeight:600,marginTop:8}},"タスクがありません"))
+    // PROJECT
+    view==="project"&&curProj&&React.createElement("div",{className:"fade-in",style:{paddingBottom:100}},
+      React.createElement("div",{style:{display:"flex",overflow:"auto",padding:"12px 16px",gap:8}},
+        Object.entries(STATUS_LABELS).map(([k,l])=>{const c=pTasks.filter(t=>t.status===k).length;return React.createElement("div",{key:k,style:{background:`${STATUS_COLORS[k]}18`,borderRadius:20,padding:"6px 14px",fontSize:13,fontWeight:600,color:STATUS_COLORS[k],whiteSpace:"nowrap",border:`1.5px solid ${STATUS_COLORS[k]}30`}},l," (",c,")")})
+      ),
+      React.createElement("div",{style:{padding:"0 16px"}},
+        ["todo","doing","review","done"].map(st=>{const sts=pTasks.filter(t=>t.status===st);if(!sts.length)return null;return React.createElement("div",{key:st,style:{marginBottom:20}},
+          React.createElement("div",{style:{fontSize:13,fontWeight:700,color:STATUS_COLORS[st],marginBottom:8}},STATUS_LABELS[st]," (",sts.length,")"),
+          sts.map(task=>React.createElement(TaskCard,{key:task.id,task,onClick:()=>goTask(task.id),onStatusChange:s=>updateTask(task.id,{status:s}),images:images.filter(i=>i.taskId===task.id),messageCount:messages.filter(m=>m.taskId===task.id).length}))
+        )}),
+        pTasks.length===0&&React.createElement("div",{style:{textAlign:"center",padding:40,color:"#b2bec3",display:"flex",flexDirection:"column",alignItems:"center"}},React.createElement(CuteLion,{size:50}),React.createElement("div",{style:{fontWeight:600,marginTop:8}},"タスクがありません"))
       ),
       React.createElement("button",{onClick:()=>setShowNewTask(true),style:{position:"fixed",bottom:80,right:"calc(50% - 220px)",width:56,height:56,borderRadius:28,background:curProj.color,border:"none",color:"#fff",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,zIndex:50}},Icons.plus)
     ),
@@ -571,8 +575,8 @@ function App(){
           it.ic,React.createElement("span",{style:{fontSize:10,fontWeight:600}},it.l),
           it.v==="notifications"&&unread>0&&React.createElement("span",{style:{position:"absolute",top:0,right:4,background:"#D63031",color:"#fff",fontSize:9,fontWeight:700,width:16,height:16,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}},unread>9?"9+":unread)
         ))
-    )
-  )
+    )
+  )
 }
 
 // ─── Form Components ───
