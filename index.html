@@ -27,7 +27,6 @@ input,textarea,select{font-family:inherit;font-size:inherit}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -45,7 +44,6 @@ const firebaseConfig={
 };
 firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore();
-const storage=firebase.storage();
 
 // Firestore wrapper functions
 const dbGetAll=async(collectionName)=>{try{const snapshot=await db.collection(collectionName).get();return snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));}catch(e){console.error(`Error getting ${collectionName}:`,e);return[]}};
@@ -461,14 +459,30 @@ function App(){
   const updateTask=async(id,u)=>{setTasks(prev=>prev.map(t=>t.id===id?{...t,...u,updatedAt:now()}:t));const task=tasks.find(t=>t.id===id);if(task){await dbPut("tasks",{...task,...u,updatedAt:now()});if(u.status&&u.status!==task.status)addNotif("ステータス変更",`「${task.title}」が${STATUS_LABELS[u.status]}になりました`,task.projectId,id)}};
   const deleteTask=async id=>{const task=tasks.find(t=>t.id===id);setTasks(prev=>prev.filter(t=>t.id!==id));await dbDelete("tasks",id);showT("タスクを削除しました");if(task)addNotif("タスク削除",`「${task.title}」が削除されました`,task.projectId,null);if(selTask===id){setSelTask(null);setShowChat(false)}};
 
+  const compressImage=file=>new Promise(resolve=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const img=new Image();
+      img.onload=()=>{
+        const MAX=900;
+        let w=img.width,h=img.height;
+        if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}
+        if(h>MAX){w=Math.round(w*MAX/h);h=MAX;}
+        const canvas=document.createElement("canvas");
+        canvas.width=w;canvas.height=h;
+        canvas.getContext("2d").drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL("image/jpeg",0.72));
+      };
+      img.src=e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
   const addImage=async(taskId,file)=>{
     const imgId=uid();
-    showT("アップロード中...","info");
+    showT("処理中...","info");
     try{
-      const ref=storage.ref(`images/${imgId}_${encodeURIComponent(file.name)}`);
-      await ref.put(file);
-      const url=await ref.getDownloadURL();
-      const img={id:imgId,taskId,url,name:file.name,type:file.type,createdAt:now()};
+      const url=await compressImage(file);
+      const img={id:imgId,taskId,url,name:file.name,type:"image/jpeg",createdAt:now()};
       setImages(prev=>[...prev,img]);
       await dbPut("images",img);
       showT("画像を追加しました","success");
@@ -478,13 +492,10 @@ function App(){
     }catch(e){showT("アップロードに失敗しました","error");console.error(e)}
   };
   const deleteImage=async id=>{
-    const img=images.find(i=>i.id===id);
     setImages(prev=>prev.filter(i=>i.id!==id));
     await dbDelete("images",id);
-    if(img?.url){try{await storage.refFromURL(img.url).delete()}catch(e){}}
     showT("画像を削除しました");
-  };
-
+  }
   const addAttachment=async(taskId,url,title)=>{
     const getLinkType=u=>{
       if(u.includes("docs.google.com/document"))return"gdoc";
@@ -602,7 +613,7 @@ function App(){
         )}),
         pTasks.length===0&&React.createElement("div",{style:{textAlign:"center",padding:40,color:"#b2bec3",display:"flex",flexDirection:"column",alignItems:"center"}},React.createElement(CuteLion,{size:50}),React.createElement("div",{style:{fontWeight:600,marginTop:8}},"タスクがありません"))
       ),
-      React.createElement("button",{onClick:()=>setShowNewTask(true),style:{position:"fixed",bottom:80,right:"calc(50% - 220px)",width:56,height:56,borderRadius:28,background:curProj.color,border:"none",color:"#fff",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,zIndex:50}},Icons.plus)
+      React.createElement("button",{onClick:()=>setShowNewTask(true),style:{position:"fixed",bottom:80,right:"calc(50% - 170px)",width:56,height:56,borderRadius:28,background:curProj.color,border:"none",color:"#fff",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,zIndex:50}},Icons.plus)
     ),
 
     // TASK DETAIL
