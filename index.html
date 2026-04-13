@@ -27,6 +27,7 @@ input,textarea,select{font-family:inherit;font-size:inherit}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 </head>
 <body>
 <div id="root"></div>
@@ -44,6 +45,7 @@ const firebaseConfig={
 };
 firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore();
+const storage=firebase.storage();
 
 // Firestore wrapper functions
 const dbGetAll=async(collectionName)=>{try{const snapshot=await db.collection(collectionName).get();return snapshot.docs.map(doc=>({id:doc.id,...doc.data()}));}catch(e){console.error(`Error getting ${collectionName}:`,e);return[]}};
@@ -279,14 +281,23 @@ function TaskCard({task,onClick,onStatusChange,images,messageCount}){
       task.assignee&&React.createElement("span",{style:{fontSize:10,padding:"2px 8px",borderRadius:10,background:"#dfe6e9",color:"#2d3436",fontWeight:500,marginLeft:"auto"}},task.assignee)
     ),
     images.length>0&&React.createElement("div",{style:{display:"flex",gap:6,marginTop:8,overflow:"auto"}},
-      images.slice(0,3).map(img=>React.createElement("img",{key:img.id,src:img.data,alt:"",style:{width:48,height:48,borderRadius:8,objectFit:"cover"}})),
+      images.slice(0,3).map(img=>React.createElement("img",{key:img.id,src:img.url,alt:"",style:{width:48,height:48,borderRadius:8,objectFit:"cover"}})),
       images.length>3&&React.createElement("span",{style:{fontSize:12,color:"#636e72",alignSelf:"center"}},"+",images.length-3)
     )
   )
 }
 
-function TaskDetail({task,images,project,onUpdate,onDelete,onAddImage,onDeleteImage,onViewImage,onOpenChat,onEdit,messageCount}){
+function TaskDetail({task,images,attachments,project,onUpdate,onDelete,onAddImage,onDeleteImage,onViewImage,onAddAttachment,onDeleteAttachment,onOpenChat,onEdit,messageCount}){
   const fileRef=useRef(null);
+  const[showAddLink,setShowAddLink]=useState(false);
+  const[linkUrl,setLinkUrl]=useState("");
+  const[linkTitle,setLinkTitle]=useState("");
+  const submitLink=()=>{
+    if(!linkUrl.trim())return;
+    onAddAttachment(linkUrl.trim(),linkTitle.trim());
+    setLinkUrl("");setLinkTitle("");setShowAddLink(false);
+  };
+  const linkTypeIcon=t=>({gdoc:"📄",gsheet:"📊",gslide:"📑",gdrive:"📁",gform:"📋",link:"🔗"}[t]||"🔗");
   return React.createElement("div",{className:"fade-in",style:{padding:16,paddingBottom:100}},
     React.createElement("div",{style:{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}},
       React.createElement("select",{value:task.status,onChange:e=>onUpdate({status:e.target.value}),style:{padding:"8px 14px",borderRadius:10,border:`2px solid ${STATUS_COLORS[task.status]}`,color:STATUS_COLORS[task.status],background:`${STATUS_COLORS[task.status]}12`,fontWeight:700,fontSize:14,cursor:"pointer"}},Object.entries(STATUS_LABELS).map(([k,v])=>React.createElement("option",{key:k,value:k},v))),
@@ -313,11 +324,33 @@ function TaskDetail({task,images,project,onUpdate,onDelete,onAddImage,onDeleteIm
       ),
       images.length>0?React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}},
         images.map(img=>React.createElement("div",{key:img.id,style:{position:"relative",borderRadius:12,overflow:"hidden",aspectRatio:"1"}},
-          React.createElement("img",{src:img.data,alt:img.name,onClick:()=>onViewImage(img.data),style:{width:"100%",height:"100%",objectFit:"cover",cursor:"pointer"}}),
+          React.createElement("img",{src:img.url,alt:img.name,onClick:()=>onViewImage(img.url),style:{width:"100%",height:"100%",objectFit:"cover",cursor:"pointer"}}),
           React.createElement("button",{onClick:()=>onDeleteImage(img.id),style:{position:"absolute",top:4,right:4,background:"rgba(0,0,0,0.5)",border:"none",borderRadius:50,width:24,height:24,display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",color:"#fff"}},Icons.close)
         ))
       ):React.createElement("div",{style:{textAlign:"center",padding:24,background:"#f8f9fa",borderRadius:14,color:"#b2bec3"}},
         React.createElement("div",{style:{fontSize:32,marginBottom:4}},"🖼"),React.createElement("div",{style:{fontSize:13}},"画像をアップロードしましょう"))
+    ),
+    React.createElement("div",{style:{marginBottom:20}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+        React.createElement("h3",{style:{fontSize:16,fontWeight:700}},"📎 添付リンク (",attachments.length,")"),
+        React.createElement("button",{onClick:()=>setShowAddLink(true),style:{background:"linear-gradient(135deg,#6C5CE7,#a29bfe)",color:"#fff",border:"none",borderRadius:10,padding:"8px 14px",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",gap:4}},Icons.plus," 追加")
+      ),
+      showAddLink&&React.createElement("div",{style:{background:"#f8f9fa",borderRadius:14,padding:14,marginBottom:12,display:"flex",flexDirection:"column",gap:8}},
+        React.createElement("input",{type:"url",placeholder:"URL (例: https://docs.google.com/...)",value:linkUrl,onChange:e=>setLinkUrl(e.target.value),style:{padding:"10px 14px",borderRadius:10,border:"2px solid #dfe6e9",fontSize:14,outline:"none",width:"100%",boxSizing:"border-box"}}),
+        React.createElement("input",{type:"text",placeholder:"タイトル (省略可)",value:linkTitle,onChange:e=>setLinkTitle(e.target.value),style:{padding:"10px 14px",borderRadius:10,border:"2px solid #dfe6e9",fontSize:14,outline:"none",width:"100%",boxSizing:"border-box"}}),
+        React.createElement("div",{style:{display:"flex",gap:8}},
+          React.createElement("button",{onClick:submitLink,style:{flex:1,padding:"10px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#6C5CE7,#a29bfe)",color:"#fff",fontWeight:600,fontSize:14,cursor:"pointer"}},"追加"),
+          React.createElement("button",{onClick:()=>{setShowAddLink(false);setLinkUrl("");setLinkTitle("");},style:{flex:1,padding:"10px",borderRadius:10,border:"2px solid #dfe6e9",background:"#fff",color:"#636e72",fontWeight:600,fontSize:14,cursor:"pointer"}},"キャンセル")
+        )
+      ),
+      attachments.length>0?React.createElement("div",{style:{display:"flex",flexDirection:"column",gap:8}},
+        attachments.map(at=>React.createElement("div",{key:at.id,style:{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",background:"#f8f9fa",borderRadius:12}},
+          React.createElement("span",{style:{fontSize:20}},linkTypeIcon(at.type)),
+          React.createElement("a",{href:at.url,target:"_blank",rel:"noopener noreferrer",style:{flex:1,fontSize:14,color:"#0984E3",fontWeight:500,textDecoration:"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowraw"}},at.title||at.url),
+          React.createElement("button",{onClick:()=>onDeleteAttachment(at.id),style:{background:"none",border:"none",cursor:"pointer",color:"#b2bec3",fontSize:18,padding:4,display:"flex",alignItems:"center"}},Icons.close)
+        ))
+      ):React.createElement("div",{style:{textAlign:"center",padding:24,background:"#f8f9fa",borderRadius:14,color:"#b2bec3"}},
+        React.createElement("div",{style:{fontSize:32,marginBottom:4}},"📎"),React.createElement("div",{style:{fontSize:13}},"リンクを追加しましょう"))
     )
   )
 }
@@ -356,6 +389,7 @@ function App(){
   const[messages,setMessages]=useState([]);
   const[notifications,setNotifications]=useState([]);
   const[images,setImages]=useState([]);
+  const[attachments,setAttachments]=useState([]);
   const[members,setMembers]=useState([]);
   const[currentUser,setCurrentUser]=useState(null);
   const[view,setView]=useState("home");
@@ -377,12 +411,13 @@ function App(){
     const initData=async()=>{
       try{
         // Initial load
-        const[p,t,m,n,i,mb]=await Promise.all([dbGetAll("projects"),dbGetAll("tasks"),dbGetAll("messages"),dbGetAll("notifications"),dbGetAll("images"),dbGetAll("members")]);
+        const[p,t,m,n,i,at,mb]=await Promise.all([dbGetAll("projects"),dbGetAll("tasks"),dbGetAll("messages"),dbGetAll("notifications"),dbGetAll("images"),dbGetAll("attachments"),dbGetAll("members")]);
         setProjects(p||[]);
         setTasks(t||[]);
         setMessages(m||[]);
         setNotifications(n||[]);
         setImages(i||[]);
+        setAttachments(at||[]);
         setMembers(mb||[]);
         if(mb&&mb.length>0)setCurrentUser(mb[0]);
 
@@ -392,6 +427,7 @@ function App(){
         unsubscribers.push(dbOnSnapshot("messages",setMessages));
         unsubscribers.push(dbOnSnapshot("notifications",setNotifications));
         unsubscribers.push(dbOnSnapshot("images",setImages));
+        unsubscribers.push(dbOnSnapshot("attachments",setAttachments));
         unsubscribers.push(dbOnSnapshot("members",setMembers));
 
         setLoaded(true);
@@ -425,8 +461,52 @@ function App(){
   const updateTask=async(id,u)=>{setTasks(prev=>prev.map(t=>t.id===id?{...t,...u,updatedAt:now()}:t));const task=tasks.find(t=>t.id===id);if(task){await dbPut("tasks",{...task,...u,updatedAt:now()});if(u.status&&u.status!==task.status)addNotif("ステータス変更",`「${task.title}」が${STATUS_LABELS[u.status]}になりました`,task.projectId,id)}};
   const deleteTask=async id=>{const task=tasks.find(t=>t.id===id);setTasks(prev=>prev.filter(t=>t.id!==id));await dbDelete("tasks",id);showT("タスクを削除しました");if(task)addNotif("タスク削除",`「${task.title}」が削除されました`,task.projectId,null);if(selTask===id){setSelTask(null);setShowChat(false)}};
 
-  const addImage=async(taskId,file)=>new Promise(res=>{const reader=new FileReader();reader.onload=async e=>{const img={id:uid(),taskId,data:e.target.result,name:file.name,type:file.type,createdAt:now()};setImages(prev=>[...prev,img]);await dbPut("images",img);showT("画像を追加しました","success");const task=tasks.find(t=>t.id===taskId);if(task)addNotif("画像追加",`「${task.title}」に画像が追加されました`,task.projectId,taskId);res(img)};reader.readAsDataURL(file)});
-  const deleteImage=async id=>{setImages(prev=>prev.filter(i=>i.id!==id));await dbDelete("images",id);showT("画像を削除しました")};
+  const addImage=async(taskId,file)=>{
+    const imgId=uid();
+    showT("アップロード中...","info");
+    try{
+      const ref=storage.ref(`images/${imgId}_${encodeURIComponent(file.name)}`);
+      await ref.put(file);
+      const url=await ref.getDownloadURL();
+      const img={id:imgId,taskId,url,name:file.name,type:file.type,createdAt:now()};
+      setImages(prev=>[...prev,img]);
+      await dbPut("images",img);
+      showT("画像を追加しました","success");
+      const task=tasks.find(t=>t.id===taskId);
+      if(task)addNotif("画像追加",`「${task.title}」に画像が追加されました`,task.projectId,taskId);
+      return img;
+    }catch(e){showT("アップロードに失敗しました","error");console.error(e)}
+  };
+  const deleteImage=async id=>{
+    const img=images.find(i=>i.id===id);
+    setImages(prev=>prev.filter(i=>i.id!==id));
+    await dbDelete("images",id);
+    if(img?.url){try{await storage.refFromURL(img.url).delete()}catch(e){}}
+    showT("画像を削除しました");
+  };
+
+  const addAttachment=async(taskId,url,title)=>{
+    const getLinkType=u=>{
+      if(u.includes("docs.google.com/document"))return"gdoc";
+      if(u.includes("docs.google.com/spreadsheets"))return"gsheet";
+      if(u.includes("docs.google.com/presentation"))return"gslide";
+      if(u.includes("drive.google.com"))return"gdrive";
+      if(u.includes("docs.google.com/forms"))return"gform";
+      return"link";
+    };
+    const type=getLinkType(url);
+    const at={id:uid(),taskId,url,title:title.trim()||url,type,createdAt:now()};
+    setAttachments(prev=>[...prev,at]);
+    await dbPut("attachments",at);
+    showT("リンクを追加しました","success");
+    const task=tasks.find(t=>t.id===taskId);
+    if(task)addNotif("リンク追加",`「${task.title}」にリンクが追加されました`,task.projectId,taskId);
+  };
+  const deleteAttachment=async id=>{
+    setAttachments(prev=>prev.filter(a=>a.id!==id));
+    await dbDelete("attachments",id);
+    showT("リンクを削除しました");
+  };
 
   const sendMessage=async(taskId,text)=>{const m={id:uid(),taskId,text,userId:currentUser.id,userName:currentUser.name,createdAt:now()};setMessages(prev=>[...prev,m]);await dbPut("messages",m);const task=tasks.find(t=>t.id===taskId);if(task)addNotif("新しいメッセージ",`${currentUser.name}: ${text.slice(0,30)}`,task.projectId,taskId)};
 
@@ -444,12 +524,13 @@ function App(){
   const curProj=projects.find(p=>p.id===selProj);
   const curTask=tasks.find(t=>t.id===selTask);
   const tImages=images.filter(i=>i.taskId===selTask);
+  const tAttachments=attachments.filter(a=>a.taskId===selTask);
   const tMsgs=messages.filter(m=>m.taskId===selTask).sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
   const filtP=search?projects.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())):projects;
 
   return React.createElement("div",{id:"root-inner"},
     // Toast
-    toast&&React.createElement("div",{className:"notif-toast",style:{position:"fixed",top:60,left:"50%",transform:"translateX(-50%)",zIndex:9999,background:toast.type==="success"?"#00B894":toast.type==="error"?"#D63031":"#0984E3",color:"#fff",padding:"10px 24px",borderRadius:24,fontSize:14,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,0.2)",whiteSpace:"nowrap"}},toast.msg),
+    toast&&React.createElement("div",{className:"notif-toast",style:{position:"fixed",top:60,left:"50%",transform:"translateX(-50%)",zIndex:9999,background:toast.type==="success"?"#00B894":toast.type==="error"?"#D63031":"#0984E3",color:"#fff",padding:"10px 24px",borderRadius:24,fontSize:14,fontWeight:600,boxShadow:"0 4px 20px rgba(0,0,0,0.2)",whiteSpace:"nowraw"}},toast.msg),
 
     // Image Viewer
     showImgView&&React.createElement("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.9)",zIndex:9998,display:"flex",alignItems:"center",justifyContent:"center"},onClick:()=>setShowImgView(null)},
@@ -525,7 +606,7 @@ function App(){
     ),
 
     // TASK DETAIL
-    view==="task"&&curTask&&!showChat&&React.createElement(TaskDetail,{task:curTask,images:tImages,project:curProj,onUpdate:u=>updateTask(curTask.id,u),onDelete:()=>{deleteTask(curTask.id);goBack()},onAddImage:f=>addImage(curTask.id,f),onDeleteImage:deleteImage,onViewImage:s=>setShowImgView(s),onOpenChat:()=>setShowChat(true),onEdit:()=>setShowEditTask(true),messageCount:tMsgs.length}),
+    view==="task"&&curTask&&!showChat&&React.createElement(TaskDetail,{task:curTask,images:tImages,attachments:tAttachments,project:curProj,onUpdate:u=>updateTask(curTask.id,u),onDelete:()=>{deleteTask(curTask.id);goBack()},onAddImage:f=>addImage(curTask.id,f),onDeleteImage:deleteImage,onViewImage:s=>setShowImgView(s),onAddAttachment:(url,title)=>addAttachment(curTask.id,url,title),onDeleteAttachment:deleteAttachment,onOpenChat:()=>setShowChat(true),onEdit:()=>setShowEditTask(true),messageCount:tMsgs.length}),
 
     // CHAT
     showChat&&curTask&&React.createElement(ChatView,{messages:tMsgs,currentUser,onSend:t=>sendMessage(curTask.id,t),task:curTask}),
