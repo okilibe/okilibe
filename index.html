@@ -73,15 +73,6 @@ const Icons={
   plus:React.createElement(Ic,{d:"M12 5v14M5 12h14"}),
   back:React.createElement(Ic,{d:"M19 12H5M12 19l-7-7 7-7"}),
   check:React.createElement(Ic,{d:"M20 6L9 17l-5-5"}),
-  trash:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M3 6h18"}),React.createEleme0B894",medium:"#FDCB6E",high:"#E17055",urgent:"#D63031"};
-const PRIORITY_LABELS={low:"低",medium:"中",high:"高",urgent:"緊急"};
-
-// ─── Icons ───
-const Ic=({d,size=20,color="currentColor",...p})=>React.createElement("svg",{width:size,height:size,viewBox:"0 0 24 24",fill:"none",stroke:color,strokeWidth:"2",strokeLinecap:"round",strokeLinejoin:"round",...p},typeof d==="string"?React.createElement("path",{d}):d);
-const Icons={
-  plus:React.createElement(Ic,{d:"M12 5v14M5 12h14"}),
-  back:React.createElement(Ic,{d:"M19 12H5M12 19l-7-7 7-7"}),
-  check:React.createElement(Ic,{d:"M20 6L9 17l-5-5"}),
   trash:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M3 6h18"}),React.createElement("path",{d:"M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"}),React.createElement("path",{d:"M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"}))}),
   edit:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"}),React.createElement("path",{d:"M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"}))}),
   chat:React.createElement(Ic,{d:React.createElement(React.Fragment,null,React.createElement("path",{d:"M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"}))}),
@@ -281,7 +272,11 @@ function TaskCard({task,onClick,onStatusChange,images,messageCount}){
         Object.entries(STATUS_LABELS).map(([k,v])=>React.createElement("option",{key:k,value:k},v)))
     ),
     React.createElement("div",{style:{display:"flex",gap:10,marginTop:10,alignItems:"center",flexWrap:"wrap"}},
- ask.assignee)
+      task.priority&&React.createElement("span",{style:{fontSize:11,padding:"2px 8px",borderRadius:6,fontWeight:600,background:`${PRIORITY_COLORS[task.priority]}18`,color:PRIORITY_COLORS[task.priority]}},PRIORITY_LABELS[task.priority]),
+      task.dueDate&&React.createElement("span",{style:{fontSize:11,color:"#636e72"}},"📅 ",fmtDate(task.dueDate)),
+      images.length>0&&React.createElement("span",{style:{fontSize:11,color:"#636e72"}},"🖼 ",images.length),
+      messageCount>0&&React.createElement("span",{style:{fontSize:11,color:"#636e72"}},"💬 ",messageCount),
+      task.assignee&&React.createElement("span",{style:{fontSize:10,padding:"2px 8px",borderRadius:10,background:"#dfe6e9",color:"#2d3436",fontWeight:500,marginLeft:"auto"}},task.assignee)
     ),
     images.length>0&&React.createElement("div",{style:{display:"flex",gap:6,marginTop:8,overflow:"auto"}},
       images.slice(0,3).map(img=>React.createElement("img",{key:img.id,src:img.data,alt:"",style:{width:48,height:48,borderRadius:8,objectFit:"cover"}})),
@@ -295,7 +290,7 @@ function TaskDetail({task,images,project,onUpdate,onDelete,onAddImage,onDeleteIm
   return React.createElement("div",{className:"fade-in",style:{padding:16,paddingBottom:100}},
     React.createElement("div",{style:{display:"flex",gap:8,marginBottom:16,flexWrap:"wrap"}},
       React.createElement("select",{value:task.status,onChange:e=>onUpdate({status:e.target.value}),style:{padding:"8px 14px",borderRadius:10,border:`2px solid ${STATUS_COLORS[task.status]}`,color:STATUS_COLORS[task.status],background:`${STATUS_COLORS[task.status]}12`,fontWeight:700,fontSize:14,cursor:"pointer"}},Object.entries(STATUS_LABELS).map(([k,v])=>React.createElement("option",{key:k,value:k},v))),
-      React.createElement("select",{value:task.priority||"medium",onChange:e=>onUpdate({priority:e.target.value}),style:{padding:"8px 14px",borderRadius:10,border:`2pp solid ${PRIORITY_COLORS[task.priority||"medium"]}`,color:PRIORITY_COLORS[task.priority||"medium"],background:`${PRIORITY_COLORS[task.priority||"medium"]}12`,fontWeight:700,fontSize:14,cursor:"pointer"}},Object.entries(PRIORITY_LABELS).map(([k,v])=>React.createElement("option",{key:k,value:k},v)))
+      React.createElement("select",{value:task.priority||"medium",onChange:e=>onUpdate({priority:e.target.value}),style:{padding:"8px 14px",borderRadius:10,border:`2px solid ${PRIORITY_COLORS[task.priority||"medium"]}`,color:PRIORITY_COLORS[task.priority||"medium"],background:`${PRIORITY_COLORS[task.priority||"medium"]}12`,fontWeight:700,fontSize:14,cursor:"pointer"}},Object.entries(PRIORITY_LABELS).map(([k,v])=>React.createElement("option",{key:k,value:k},v)))
     ),
     React.createElement("h1",{style:{fontSize:22,fontWeight:800,marginBottom:8}},task.title),
     task.description&&React.createElement("p",{style:{fontSize:14,color:"#636e72",lineHeight:1.6,marginBottom:16}},task.description),
@@ -430,7 +425,7 @@ function App(){
   const updateTask=async(id,u)=>{setTasks(prev=>prev.map(t=>t.id===id?{...t,...u,updatedAt:now()}:t));const task=tasks.find(t=>t.id===id);if(task){await dbPut("tasks",{...task,...u,updatedAt:now()});if(u.status&&u.status!==task.status)addNotif("ステータス変更",`「${task.title}」が${STATUS_LABELS[u.status]}になりました`,task.projectId,id)}};
   const deleteTask=async id=>{const task=tasks.find(t=>t.id===id);setTasks(prev=>prev.filter(t=>t.id!==id));await dbDelete("tasks",id);showT("タスクを削除しました");if(task)addNotif("タスク削除",`「${task.title}」が削除されました`,task.projectId,null);if(selTask===id){setSelTask(null);setShowChat(false)}};
 
-  const addImage=async(taskId,file)=>new Promise(res=>{const reader=new FileReader();reader.onload=async e=>{const img={id:uid(),taskId,data:e.target.result,name:file.name,type:file.type,createdAt:now()};setImages(prev=>[...prev,img]);await dbPut("images",img);showT("画像を追加しました","success");const task=tasks.find(t=>t.id===taskId);if(task)addNotif("画像追加",`${task.title}」に画像が追加されました`,task.projectId,taskId);res(img)};reader.readAsDataURL(file)});
+  const addImage=async(taskId,file)=>new Promise(res=>{const reader=new FileReader();reader.onload=async e=>{const img={id:uid(),taskId,data:e.target.result,name:file.name,type:file.type,createdAt:now()};setImages(prev=>[...prev,img]);await dbPut("images",img);showT("画像を追加しました","success");const task=tasks.find(t=>t.id===taskId);if(task)addNotif("画像追加",`「${task.title}」に画像が追加されました`,task.projectId,taskId);res(img)};reader.readAsDataURL(file)});
   const deleteImage=async id=>{setImages(prev=>prev.filter(i=>i.id!==id));await dbDelete("images",id);showT("画像を削除しました")};
 
   const sendMessage=async(taskId,text)=>{const m={id:uid(),taskId,text,userId:currentUser.id,userName:currentUser.name,createdAt:now()};setMessages(prev=>[...prev,m]);await dbPut("messages",m);const task=tasks.find(t=>t.id===taskId);if(task)addNotif("新しいメッセージ",`${currentUser.name}: ${text.slice(0,30)}`,task.projectId,taskId)};
@@ -502,29 +497,7 @@ function App(){
       filtP.map(p=>{const pt=tasks.filter(t=>t.projectId===p.id);const done=pt.filter(t=>t.status==="done").length;const prog=pt.length?Math.round(done/pt.length*100):0;
         return React.createElement("div",{key:p.id,className:"pop",onClick:()=>goProj(p.id),style:{background:"#fff",borderRadius:16,padding:16,marginBottom:12,boxShadow:"0 2px 12px rgba(0,0,0,0.06)",cursor:"pointer",borderLeft:`4px solid ${p.color}`}},
           React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
-            React.createElement("div",null,React.createElement("div",{style:{fontWeight:700,fontSize:16,marginBottom:4}},p.name),p.description&&React.createElement("div",{style:{fontSize:13,color:"#636e72",marginBottom:8}},p.description)),
-            React.createElement("button",{onClick:e=>{e.stopPropagation();deleteProject(p.id)},style:{background:"none",border:"none",cursor:"pointer",color:"#dfe6e9",padding:4}},Icons.trash)
-          ),
-          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:12,marginTop:8}},
-            React.createElement("div",{style:{flex:1,background:"#f0f2f5",borderRadius:6,height:6,overflow:"hidden"}},React.createElement("div",{style:{width:`${prog}%`,height:"100%",background:p.color,borderRadius:6}})),
-            React.createElement("span",{style:{fontSize:12,color:"#636e72",fontWeight:600}},prog,"%")
-          ),
-          React.createElement("div",{style:{display:"flex",gap:12,marginTop:10,fontSize:12,color:"#636e72"}},"📋 ",pt.length,"タスク  ✅ ",done,"完了")
-        )
-      })
-    ),
-
-    // PROJECT
-    view==="project"&&curProj&&React.createElement("div",{className:"fade-in",style:{paddingBottom:100}},
-      React.createElement("div",{style:{display:"flex",overflow:"auto",padding:"12px 16px",gap:8}},
-        Object.entries(STATUS_LABELS).map(([k,l])=>{const c=pTasks.filter(t=>t.status===k).length;return React.createElement("div",{key:k,style:{background:`${STATUS_COLORS[k]}18`,borderRadius:20,padding:"6px 14px",fontSize:13,fontWeight:600,color:STATUS_COLORS[k],whiteSpace:"nowrap",border:`1.5px solid ${STATUS_COLORS[k]}30`}},l," (",c,")")})
-      ),
-      React.createElement("div",{style:{padding:"0 16px"}},
-        ["todo","doing","review","done"].map(st=>{const sts=pTasks.filter(t=>t.status===st);if(!sts.length)return null;return React.createElement("div",{key:st,style:{marginBottom:20}},
-          React.createElement("div",{style:{fontSize:13,fontWeight:700,color:STATUS_COLORS[st],marginBottom:8}},STATUS_LABELS[st]," (",sts.length,")"),
-          sts.map(task=>React.createElement(TaskCard,{key:task.id,task,onClick:()=>goTask(task.id),onStatusChange:s=>updateTask(task.id,{status:s}),images:images.filter(i=>i.taskId===task.id),messageCount:messages.filter(m=>m.taskId===task.id).length}))
-        )}),
-        pTasks.length===0&&React.createElement("div",{style:{textAlign:"center",padding:40,color:"#b2bec3",display:"flex",flexDirection:"column",alignItems:"center"}},React.createElement(CuteLion,{size:50}),React.createElement("div",{style:{fontWeight:600,marginTop:8}},"タスクがありません"))
+            React.createElement("div",null,React.createElement("div",{style:{fontWeight:700,fontSize:16,marginBottom:4}},p.name),p.description&&React.createElement("div",{play:"flex",flexDirection:"column",alignItems:"center"}},React.createElement(CuteLion,{size:50}),React.createElement("div",{style:{fontWeight:600,marginTop:8}},"タスクがありません"))
       ),
       React.createElement("button",{onClick:()=>setShowNewTask(true),style:{position:"fixed",bottom:80,right:"calc(50% - 220px)",width:56,height:56,borderRadius:28,background:curProj.color,border:"none",color:"#fff",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,zIndex:50}},Icons.plus)
     ),
@@ -537,7 +510,25 @@ function App(){
 
     // NOTIFICATIONS
     view==="notifications"&&React.createElement("div",{className:"fade-in",style:{padding:16,paddingBottom:100}},
-      React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",marginBottom:12}},React.createElement("button",{onClick:markAllRead,style:{background:"none",border:"none",color:"#6C5CE7",fontSize:13,fontWeight:600,cursor:"pointer"}},"すべて既読にしまし")),
+      React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",marginBottom:12}},React.createElement("button",{onClick:markAllRead,style:{background:"none",border:"none",color:"#6C5CE7",fontSize:13,fontWeight:600,cursor:"pointer"}},"すべて既読にする")),
+      notifications.length===0?React.createElement("div",{style:{textAlign:"center",padding:40,color:"#b2bec3"}},"🔔 通知はありません"):
+      notifications.slice(0,50).map(n=>React.createElement("div",{key:n.id,onClick:()=>{if(n.taskId)goTask(n.taskId);else if(n.projectId)goProj(n.projectId)},style:{background:n.read?"#fff":"#f0e6ff",borderRadius:12,padding:14,marginBottom:8,cursor:"pointer",boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}},
+        React.createElement("div",{style:{fontWeight:600,fontSize:14}},n.title),
+        React.createElement("div",{style:{fontSize:13,color:"#636e72",marginTop:2}},n.body),
+        React.createElement("div",{style:{fontSize:11,color:"#b2bec3",marginTop:4play:"flex",flexDirection:"column",alignItems:"center"}},React.createElement(CuteLion,{size:50}),React.createElement("div",{style:{fontWeight:600,marginTop:8}},"タスクがありません"))
+      ),
+      React.createElement("button",{onClick:()=>setShowNewTask(true),style:{position:"fixed",bottom:80,right:"calc(50% - 220px)",width:56,height:56,borderRadius:28,background:curProj.color,border:"none",color:"#fff",boxShadow:"0 4px 20px rgba(0,0,0,0.25)",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontSize:28,zIndex:50}},Icons.plus)
+    ),
+
+    // TASK DETAIL
+    view==="task"&&curTask&&!showChat&&React.createElement(TaskDetail,{task:curTask,images:tImages,project:curProj,onUpdate:u=>updateTask(curTask.id,u),onDelete:()=>{deleteTask(curTask.id);goBack()},onAddImage:f=>addImage(curTask.id,f),onDeleteImage:deleteImage,onViewImage:s=>setShowImgView(s),onOpenChat:()=>setShowChat(true),onEdit:()=>setShowEditTask(true),messageCount:tMsgs.length}),
+
+    // CHAT
+    showChat&&curTask&&React.createElement(ChatView,{messages:tMsgs,currentUser,onSend:t=>sendMessage(curTask.id,t),task:curTask}),
+
+    // NOTIFICATIONS
+    view==="notifications"&&React.createElement("div",{className:"fade-in",style:{padding:16,paddingBottom:100}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"flex-end",marginBottom:12}},React.createElement("button",{onClick:markAllRead,style:{background:"none",border:"none",color:"#6C5CE7",fontSize:13,fontWeight:600,cursor:"pointer"}},"すべて既読にする")),
       notifications.length===0?React.createElement("div",{style:{textAlign:"center",padding:40,color:"#b2bec3"}},"🔔 通知はありません"):
       notifications.slice(0,50).map(n=>React.createElement("div",{key:n.id,onClick:()=>{if(n.taskId)goTask(n.taskId);else if(n.projectId)goProj(n.projectId)},style:{background:n.read?"#fff":"#f0e6ff",borderRadius:12,padding:14,marginBottom:8,cursor:"pointer",boxShadow:"0 1px 4px rgba(0,0,0,0.04)"}},
         React.createElement("div",{style:{fontWeight:600,fontSize:14}},n.title),
@@ -580,8 +571,8 @@ function App(){
           it.ic,React.createElement("span",{style:{fontSize:10,fontWeight:600}},it.l),
           it.v==="notifications"&&unread>0&&React.createElement("span",{style:{position:"absolute",top:0,right:4,background:"#D63031",color:"#fff",fontSize:9,fontWeight:700,width:16,height:16,borderRadius:8,display:"flex",alignItems:"center",justifyContent:"center"}},unread>9?"9+":unread)
         ))
-    )
-  )
+    )
+  )
 }
 
 // ─── Form Components ───
